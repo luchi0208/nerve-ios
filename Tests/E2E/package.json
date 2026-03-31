@@ -1,0 +1,12 @@
+{
+  "name": "nerve-e2e-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node e2e.test.mjs",
+    "test:build-and-run": "node e2e.test.mjs --build"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

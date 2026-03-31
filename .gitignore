@@ -1,0 +1,22 @@
+# Build
+.build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Dependencies
+node_modules/
+mcp-server/dist/
+
+# OS
+.DS_Store
+*.swp
+*~
+
+# Nerve runtime
+/tmp/nerve-ports/
+/tmp/nerve-nav/
+
+# IDE
+.idea/
+.vscode/
