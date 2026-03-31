@@ -1,0 +1,232 @@
+# Nerve
+
+Nerve gives AI agents eyes and hands inside iOS Simulator apps.
+
+Add the Nerve Swift package to your app, and an MCP server connects your AI agent to it. The agent can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug — all through natural language.
+
+## Setup
+
+### 1. Add the Swift Package
+
+In Xcode: **File > Add Package Dependencies > Add Local...** and select the Nerve directory.
+
+Then add two lines to your app's entry point:
+
+```swift
+#if DEBUG
+import Nerve
+#endif
+
+@main
+struct MyApp: App {
+    init() {
+        #if DEBUG
+        Nerve.start()
+        #endif
+    }
+    // ...
+}
+```
+
+All Nerve code is wrapped in `#if DEBUG` — zero code ships in release builds.
+
+You can also add Nerve as a remote package dependency:
+
+```swift
+// Package.swift
+dependencies: [
+    .package(url: "https://github.com/luchi0208/nerve-ios.git", from: "0.1.0")
+]
+```
+
+### 2. Install the MCP Server
+
+```bash
+npx nerve-mcp@latest
+```
+
+Or install globally:
+
+```bash
+npm install -g nerve-mcp
+```
+
+Or clone and build from source:
+
+```bash
+git clone https://github.com/luchi0208/nerve-ios.git
+cd nerve/mcp-server && npm install && npm run build
+```
+
+### 3. Configure Your AI Agent
+
+**Claude Code** — add to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "nerve": {
+      "command": "npx",
+      "args": ["nerve-mcp@latest"]
+    }
+  }
+}
+```
+
+**Claude Desktop / Cursor / Other MCP clients:**
+
+```json
+{
+  "mcpServers": {
+    "nerve": {
+      "command": "npx",
+      "args": ["nerve-mcp@latest"]
+    }
+  }
+}
+```
+
+If installed from source:
+
+```json
+{
+  "mcpServers": {
+    "nerve": {
+      "command": "node",
+      "args": ["/path/to/nerve/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+## Quick Start
+
+```
+1. Build and run your app on the simulator (Cmd+R in Xcode or nerve_run)
+2. nerve_view  →  see every element on screen
+3. nerve_tap   →  tap buttons, fill fields, navigate
+```
+
+The agent sees every element, taps by reference (`@e2`), types text, scrolls, and verifies results — no sleep needed between commands.
+
+## How It Works
+
+Nerve runs inside the app process as a Swift package. It starts a WebSocket server that the MCP server on the Mac connects to. AI agent tool calls are translated into commands executed inside the app.
+
+Because it runs in-process, Nerve has access to the full view hierarchy, the Objective-C runtime, live objects, network delegates, and the HID event system.
+
+```
+AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit/SwiftUI
+```
+
+## Tools
+
+### See the Screen
+
+| Tool | Description |
+|------|-------------|
+| `nerve_view` | See all visible elements with type, label, ID, tap point, and position |
+| `nerve_tree` | Full UIKit view hierarchy |
+| `nerve_inspect` | Detailed properties of a specific element |
+| `nerve_screenshot` | Capture the screen as an image |
+
+### Interact
+
+| Tool | Description |
+|------|-------------|
+| `nerve_tap` | Tap an element by `@eN` ref, `#identifier`, `@label`, or coordinates |
+| `nerve_type` | Type text into the focused field |
+| `nerve_scroll` | Scroll in any direction |
+| `nerve_swipe` | Swipe gesture |
+| `nerve_long_press` | Long press |
+| `nerve_double_tap` | Double tap |
+| `nerve_drag_drop` | Drag from one element to another |
+| `nerve_pull_to_refresh` | Pull to refresh |
+| `nerve_pinch` | Pinch/zoom |
+| `nerve_context_menu` | Open context menu |
+| `nerve_back` | Navigate back |
+| `nerve_dismiss` | Dismiss keyboard or modal |
+
+### Navigate
+
+| Tool | Description |
+|------|-------------|
+| `nerve_map` | See all discovered screens and transitions |
+| `nerve_navigate` | Auto-navigate to a known screen |
+| `nerve_scroll_to_find` | Scroll until an element appears |
+| `nerve_deeplink` | Open a URL scheme |
+
+### Inspect & Debug
+
+| Tool | Description |
+|------|-------------|
+| `nerve_console` | App logs (stdout/stderr) |
+| `nerve_network` | Intercepted HTTP traffic with response bodies |
+| `nerve_heap` | Find live object instances by class name |
+| `nerve_storage` | Read UserDefaults, Keychain, cookies, files |
+| `nerve_trace` | Swizzle any method to log calls |
+| `nerve_highlight` | Draw colored borders on elements for visual debugging |
+| `nerve_modify` | Change view properties at runtime |
+| `nerve_lldb` | Full LLDB debugger access |
+
+### Build & Launch
+
+| Tool | Description |
+|------|-------------|
+| `nerve_run` | Build, install, and launch on the simulator |
+| `nerve_build` | Build only |
+| `nerve_status` | Show connected targets |
+| `nerve_grant_permissions` | Pre-grant iOS permissions |
+
+## Element Queries
+
+Nerve supports several query formats for targeting elements:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `@eN` | `@e2` | Element ref from `nerve_view` output |
+| `#id` | `#login-btn` | Accessibility identifier |
+| `@label` | `@Settings` | Accessibility label |
+| `.type:index` | `.field:0` | Element type with index |
+| `x,y` | `195,160` | Screen coordinates |
+
+The `nerve_view` output shows each element with its ref and tap point:
+
+```
+@e1 btn "Product A" #product-a tap=195,222 x=16 y=195 w=358 h=54
+@e2 field val=Email tap=195,160 x=32 y=149 w=326 h=22
+```
+
+Use `@e2` to tap that field — Nerve uses the element's activation point (center), which is always the correct hittable position.
+
+## Auto-Wait
+
+Every interaction command automatically waits for the UI to settle before returning. No `sleep()` needed between commands. Nerve detects running animations and returns when the screen is ready for the next action. Permanent animations (Liquid Glass effects, loading spinners) are filtered out automatically.
+
+For async operations like network requests, use `nerve_wait_idle` or `nerve_network` explicitly.
+
+## Architecture
+
+```
+Nerve/
+  Sources/
+    Nerve/           Swift framework — commands, element resolution, inspection
+    NerveObjC/       ObjC/C bridge — touch synthesis, heap walking, swizzling
+  Example/           Example app with test views
+  Tests/
+    E2E/             End-to-end tests (82 tests)
+    NerveTests/      Unit tests
+  mcp-server/        MCP server (TypeScript)
+  cli/               CLI tool
+```
+
+## Requirements
+
+- macOS 14+
+- Xcode 16+
+- iOS Simulator (iOS 16+)
+- Node.js 18+
+
+## License
+
+MIT
