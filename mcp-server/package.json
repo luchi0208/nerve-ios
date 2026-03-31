@@ -1,0 +1,33 @@
+{
+  "name": "nerve-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Nerve — gives AI agents runtime access to iOS apps",
+  "main": "dist/index.js",
+  "bin": {
+    "nerve-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luchi0208/nerve-ios.git",
+    "directory": "mcp-server"
+  },
+  "files": ["dist", "README.md"],
+  "keywords": ["mcp", "ios", "automation", "simulator", "nerve"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  },
+  "license": "MIT"
+}
