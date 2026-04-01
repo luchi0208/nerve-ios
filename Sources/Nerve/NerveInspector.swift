@@ -2,6 +2,7 @@
 
 import UIKit
 import NerveObjC
+import os
 
 // MARK: - Safe Int conversion
 
@@ -158,6 +159,7 @@ extension NerveEngine {
     @MainActor
     func handleScreenshot(_ command: NerveCommand) async -> NerveResponse {
         let scale = command.doubleParam("scale") ?? 1.0
+        let maxDimension = command.doubleParam("maxDimension")
         let windows = NerveGetAllWindows() as? [UIWindow] ?? NerveElementResolver.allWindowsPublic()
         guard let window = windows.first else {
             return .error(command.id, "No window available")
@@ -169,7 +171,18 @@ extension NerveEngine {
         }
 
         let finalImage: UIImage
-        if scale < 1.0 {
+        if let maxDim = maxDimension, maxDim > 0 {
+            // Resize so the longest side fits within maxDimension
+            let longestSide = max(image.size.width, image.size.height)
+            if longestSide > maxDim {
+                let resizeScale = maxDim / longestSide
+                let newSize = CGSize(width: image.size.width * resizeScale, height: image.size.height * resizeScale)
+                let resizeRenderer = UIGraphicsImageRenderer(size: newSize)
+                finalImage = resizeRenderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+            } else {
+                finalImage = image
+            }
+        } else if scale < 1.0 {
             let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
             let resizeRenderer = UIGraphicsImageRenderer(size: newSize)
             finalImage = resizeRenderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }

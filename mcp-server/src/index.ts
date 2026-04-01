@@ -147,7 +147,6 @@ async function send(
   const target = resolveTarget(targetId);
   const url = `ws://${target.host}:${target.port}`;
   const id = `req_${++requestCounter}`;
-
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     let settled = false;
@@ -448,6 +447,7 @@ const TOOLS = [
       properties: {
         target: { type: "string" },
         scale: { type: "number", description: "Image scale. Default: 1.0." },
+        maxDimension: { type: "number", description: "Resize so longest side fits within this value (in points). Normalizes across device sizes. Example: 800. Overrides scale when set." },
       },
     },
   },
