@@ -116,9 +116,13 @@ final class NerveEngine {
             response = .error(command.id, "Unknown command: '\(command.command)'")
         }
 
-        // Auto-wait for UI to settle after interaction commands
+        // Auto-wait for UI to settle after interaction commands, then auto-append view
         if response.ok && Self.uiActionCommands.contains(command.command) {
             await waitForUIToSettle()
+            let viewResponse = await handleView(command)
+            if viewResponse.ok {
+                return .success(command.id, response.body + "\n" + viewResponse.body)
+            }
         }
 
         return response

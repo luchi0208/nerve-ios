@@ -227,7 +227,7 @@ The tap= coordinate is the center point where the element is reliably hittable.
 - nerve_back to go back, nerve_dismiss to close modals/keyboard.
 - nerve_map to see all discovered screens. nerve_navigate to auto-navigate to a known screen.
 - nerve_deeplink to open a URL scheme directly.
-- After navigation, call nerve_view to see the new screen.
+- Interaction commands (tap, scroll, type, swipe, back, dismiss) automatically return the updated screen state — no need to call nerve_view after them.
 
 ### Interact
 - nerve_tap to press buttons and select items. Use @eN refs or #id.
@@ -296,7 +296,7 @@ const TOOLS = [
   },
   {
     name: "nerve_tap",
-    description: "Tap a UI element to press buttons, select items, navigate, or focus text fields. Use #identifier (most reliable), @label (by visible text), or x,y coordinates.",
+    description: "Tap a UI element. Response includes the updated screen state (auto-view), so you do NOT need to call nerve_view after tapping. Use #identifier, @label, or x,y coordinates.",
     inputSchema: {
       type: "object" as const,
       properties: {
