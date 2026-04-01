@@ -36,8 +36,6 @@ final class NerveServer {
             case .ready:
                 if let port = self?.listener?.port?.rawValue {
                     os_log("[Nerve] WebSocket server ready on port %d", port)
-                    self?.writePortFile(port: port)
-                    self?.advertiseBonjourIfDevice(port: port)
                 }
             case .failed(let error):
                 os_log("[Nerve] Listener failed: %{public}@", error.localizedDescription)
@@ -57,7 +55,6 @@ final class NerveServer {
         connections.forEach { $0.cancel() }
         connections.removeAll()
         listener?.cancel()
-        cleanupPortFile()
     }
 
     func send(_ response: NerveResponse) {
@@ -125,57 +122,6 @@ final class NerveServer {
         }
     }
 
-    // MARK: - Port Discovery
-
-    private func writePortFile(port: UInt16) {
-        guard let udid = ProcessInfo.processInfo.environment["SIMULATOR_UDID"] else { return }
-
-        let dir = "/tmp/nerve-ports"
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-
-        let info: [String: Any] = [
-            "port": port,
-            "pid": ProcessInfo.processInfo.processIdentifier,
-            "bundleId": Bundle.main.bundleIdentifier ?? "unknown",
-            "appName": Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "unknown",
-            "platform": "simulator",
-            "udid": udid,
-            "startTime": Date().timeIntervalSince1970,
-        ]
-
-        let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
-        let path = "\(dir)/\(udid)-\(bundleId).json"
-        if let data = try? JSONSerialization.data(withJSONObject: info, options: .prettyPrinted) {
-            try? data.write(to: URL(fileURLWithPath: path))
-            os_log("[Nerve] Port file written: %{public}@", path)
-        }
-    }
-
-    private func cleanupPortFile() {
-        guard let udid = ProcessInfo.processInfo.environment["SIMULATOR_UDID"] else { return }
-        let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
-        try? FileManager.default.removeItem(atPath: "/tmp/nerve-ports/\(udid)-\(bundleId).json")
-    }
-
-    private func advertiseBonjourIfDevice(port: UInt16) {
-        guard ProcessInfo.processInfo.environment["SIMULATOR_UDID"] == nil else { return }
-
-        let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
-        let shortId = String(bundleId.suffix(20))
-
-        listener?.service = NWListener.Service(
-            name: "Nerve-\(shortId)",
-            type: "_nerve._tcp",
-            txtRecord: NWTXTRecord([
-                "bundleId": bundleId,
-                "appName": Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "unknown",
-                "port": "\(port)",
-                "platform": "device",
-            ])
-        )
-
-        os_log("[Nerve] Bonjour service advertised: _nerve._tcp")
-    }
 }
 
 #endif

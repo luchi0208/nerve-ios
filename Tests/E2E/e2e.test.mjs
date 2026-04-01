@@ -20,7 +20,7 @@ import * as path from "path";
 // --- Config ---
 
 const NERVE_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "../..");
-const PORT_DIR = "/tmp/nerve-ports";
+const BUNDLE_ID = "com.nerve.example";
 const TIMEOUT_MS = 10000;
 
 let requestId = 0;
@@ -30,6 +30,16 @@ let testsSkipped = 0;
 const failures = [];
 let currentPort = null;
 let simulatorUDID = null;
+
+// djb2 hash — must match the Swift side exactly
+function nervePort(udid, bundleId) {
+  const key = `${udid}-${bundleId}`;
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) + hash + key.charCodeAt(i)) >>> 0;
+  }
+  return 10000 + (hash % 55000);
+}
 
 // --- Helpers ---
 
@@ -103,20 +113,21 @@ function sleep(ms) {
 
 /** Restart the app and reconnect WebSocket for a clean state */
 async function restartApp() {
-  // Find simulator UDID from port file if not already known
+  // Find simulator UDID from booted sims if not already known
   if (!simulatorUDID) {
-    if (fs.existsSync(PORT_DIR)) {
-      const files = fs.readdirSync(PORT_DIR).filter(f => f.endsWith(".json"));
-      for (const file of files) {
-        try {
-          const info = JSON.parse(fs.readFileSync(path.join(PORT_DIR, file), "utf-8"));
-          if (info.port === currentPort) {
-            simulatorUDID = info.udid;
+    try {
+      const simJSON = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
+      const simData = JSON.parse(simJSON);
+      for (const [, devices] of Object.entries(simData.devices)) {
+        for (const d of devices) {
+          if (d.state === "Booted" && nervePort(d.udid, BUNDLE_ID) === currentPort) {
+            simulatorUDID = d.udid;
             break;
           }
-        } catch {}
+        }
+        if (simulatorUDID) break;
       }
-    }
+    } catch {}
   }
 
   if (!simulatorUDID) {
@@ -126,32 +137,19 @@ async function restartApp() {
 
   // Terminate the app
   try {
-    execSync(`xcrun simctl terminate "${simulatorUDID}" com.nerve.example 2>/dev/null`);
-  } catch {}
-
-  // Clean up old port file
-  try {
-    fs.unlinkSync(`${PORT_DIR}/${simulatorUDID}-com.nerve.example.json`);
+    execSync(`xcrun simctl terminate "${simulatorUDID}" ${BUNDLE_ID} 2>/dev/null`);
   } catch {}
 
   await sleep(300);
 
   // Relaunch
-  execSync(`xcrun simctl launch "${simulatorUDID}" com.nerve.example`);
+  execSync(`xcrun simctl launch "${simulatorUDID}" ${BUNDLE_ID}`);
 
-  // Wait for Nerve port file
-  const portFile = `${PORT_DIR}/${simulatorUDID}-com.nerve.example.json`;
-  for (let i = 0; i < 30; i++) {
-    if (fs.existsSync(portFile)) {
-      const info = JSON.parse(fs.readFileSync(portFile, "utf-8"));
-      currentPort = info.port;
-      break;
-    }
-    await sleep(500);
-  }
+  // Port is deterministic — no need to wait for a file
+  currentPort = nervePort(simulatorUDID, BUNDLE_ID);
 
   // Wait for app to be ready — verify with a status ping
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
     try {
       await send("status");
       return;
@@ -244,29 +242,29 @@ async function buildAndLaunch() {
   // Kill any existing instance
   try {
     execSync(
-      `xcrun simctl terminate "${udid}" com.nerve.example 2>/dev/null`
+      `xcrun simctl terminate "${udid}" ${BUNDLE_ID} 2>/dev/null`
     );
-  } catch {}
-
-  // Clean up old port file
-  try {
-    fs.unlinkSync(`${PORT_DIR}/${udid}-com.nerve.example.json`);
   } catch {}
 
   // Launch
   console.log("  Launching...");
-  execSync(`xcrun simctl launch "${udid}" com.nerve.example`);
+  execSync(`xcrun simctl launch "${udid}" ${BUNDLE_ID}`);
 
-  // Wait for Nerve port file
+  // Port is deterministic from UDID + bundle ID
+  const port = nervePort(udid, BUNDLE_ID);
+  simulatorUDID = udid;
+
+  // Wait for Nerve to be ready
   console.log("  Waiting for Nerve...");
-  const portFile = `${PORT_DIR}/${udid}-com.nerve.example.json`;
   for (let i = 0; i < 30; i++) {
-    if (fs.existsSync(portFile)) {
-      const info = JSON.parse(fs.readFileSync(portFile, "utf-8"));
-      console.log(`  Nerve ready on port ${info.port}`);
-      return info.port;
+    try {
+      currentPort = port;
+      await send("status");
+      console.log(`  Nerve ready on port ${port}`);
+      return port;
+    } catch {
+      await sleep(500);
     }
-    await sleep(500);
   }
 
   console.error("  Nerve did not start within 15s");
@@ -280,29 +278,26 @@ async function findRunningInstance() {
     return parseInt(process.argv[portArg + 1]);
   }
 
-  // Check port files — prefer com.nerve.example
-  if (!fs.existsSync(PORT_DIR)) return null;
-  const files = fs.readdirSync(PORT_DIR).filter((f) => f.endsWith(".json"));
-  const sorted = files.sort((a, b) => {
-    const aMatch = a.includes("com.nerve.example") ? 0 : 1;
-    const bMatch = b.includes("com.nerve.example") ? 0 : 1;
-    return aMatch - bMatch;
-  });
-
-  for (const file of sorted) {
-    try {
-      const info = JSON.parse(
-        fs.readFileSync(path.join(PORT_DIR, file), "utf-8")
-      );
-      // Check if process is alive
-      try {
-        process.kill(info.pid, 0);
-        return info.port;
-      } catch {
-        fs.unlinkSync(path.join(PORT_DIR, file));
+  // Scan booted simulators and probe for Nerve on the deterministic port
+  try {
+    const simJSON = execSync("xcrun simctl list devices booted -j", { encoding: "utf-8" });
+    const simData = JSON.parse(simJSON);
+    for (const [, devices] of Object.entries(simData.devices)) {
+      for (const d of devices) {
+        if (d.state === "Booted") {
+          const port = nervePort(d.udid, BUNDLE_ID);
+          try {
+            currentPort = port;
+            await send("status");
+            simulatorUDID = d.udid;
+            return port;
+          } catch {
+            // Not running on this simulator
+          }
+        }
       }
-    } catch {}
-  }
+    }
+  } catch {}
 
   return null;
 }

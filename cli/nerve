@@ -94,9 +94,22 @@ for runtime, devices in data.get('devices', {}).items():
         sleep 2
     fi
 
-    # Build the app
+    # Per-project derived data to avoid cross-project collisions
+    local project_dir
+    if [[ -n "$workspace" ]]; then
+        project_dir="$(cd "$(dirname "$workspace")" && pwd)"
+    elif [[ -n "$project" ]]; then
+        project_dir="$(cd "$(dirname "$project")" && pwd)"
+    else
+        project_dir="$(pwd)"
+    fi
+    local project_name
+    project_name="$(basename "$project_dir")"
+    local derived_data="/tmp/nerve-derived-data-${project_name}"
+
+    # Build the app (no hardcoded configuration — let the scheme decide)
     log "Building $scheme for simulator..."
-    local build_args=(-scheme "$scheme" -sdk iphonesimulator -configuration Debug -derivedDataPath "${NERVE_DIR}/.build/DerivedData")
+    local build_args=(-scheme "$scheme" -sdk iphonesimulator -derivedDataPath "$derived_data")
 
     if [[ -n "$workspace" ]]; then
         build_args=(-workspace "$workspace" "${build_args[@]}")
@@ -106,11 +119,14 @@ for runtime, devices in data.get('devices', {}).items():
 
     xcodebuild build "${build_args[@]}" -quiet 2>&1 | tail -5
 
-    # Find the built app
-    local app_path
-    app_path=$(find "${NERVE_DIR}/.build/DerivedData/Build/Products/Debug-iphonesimulator" -name "*.app" -maxdepth 1 | head -1)
+    # Get exact app path from build settings
+    local built_products_dir product_name
+    built_products_dir=$(xcodebuild -showBuildSettings "${build_args[@]}" 2>/dev/null | grep '^\s*BUILT_PRODUCTS_DIR = ' | sed 's/.*= //')
+    product_name=$(xcodebuild -showBuildSettings "${build_args[@]}" 2>/dev/null | grep '^\s*FULL_PRODUCT_NAME = ' | sed 's/.*= //')
 
-    if [[ -z "$app_path" ]]; then
+    local app_path="${built_products_dir}/${product_name}"
+
+    if [[ -z "$app_path" || ! -d "$app_path" ]]; then
         err "Could not find built .app bundle"
         exit 1
     fi

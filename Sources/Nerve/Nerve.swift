@@ -50,8 +50,13 @@ final class NerveEngine {
         if port != 0 {
             resolvedPort = port
         } else if let udid = ProcessInfo.processInfo.environment["SIMULATOR_UDID"] {
-            let hash = udid.utf8.reduce(0) { ($0 &* 31) &+ Int($1) }
-            resolvedPort = 8770 + UInt16(abs(hash) % 200)
+            let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
+            let key = "\(udid)-\(bundleId)"
+            var hash: UInt32 = 5381
+            for byte in key.utf8 {
+                hash = ((hash &<< 5) &+ hash) &+ UInt32(byte)  // djb2
+            }
+            resolvedPort = 10000 + UInt16(hash % 55000)
         } else {
             resolvedPort = 9500
         }

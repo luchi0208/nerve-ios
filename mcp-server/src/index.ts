@@ -7,23 +7,11 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import WebSocket from "ws";
-import { execSync, spawn } from "child_process";
-import * as fs from "fs";
+import { spawn } from "child_process";
 import * as path from "path";
 import * as net from "net";
 
 // --- Types ---
-
-interface NerveTarget {
-  id: string;
-  platform: "simulator" | "device";
-  bundleId: string;
-  appName: string;
-  port: number;
-  host: string;
-  udid?: string;
-  pid?: number;
-}
 
 interface NerveResponse {
   id: string;
@@ -31,112 +19,38 @@ interface NerveResponse {
   data: string;
 }
 
-// --- Discovery ---
+// --- Port Resolution ---
 
-function discoverSimulatorTargets(): NerveTarget[] {
-  const dir = "/tmp/nerve-ports";
-  if (!fs.existsSync(dir)) return [];
-
-  const targets: NerveTarget[] = [];
-  for (const file of fs.readdirSync(dir)) {
-    if (!file.endsWith(".json")) continue;
-    try {
-      const info = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
-
-      // Check if process is still alive
-      try {
-        process.kill(info.pid, 0);
-      } catch {
-        // Process is dead, clean up stale file
-        fs.unlinkSync(path.join(dir, file));
-        continue;
-      }
-
-      targets.push({
-        id: `sim:${info.udid}:${info.bundleId}`,
-        platform: "simulator",
-        bundleId: info.bundleId,
-        appName: info.appName,
-        port: info.port,
-        host: "127.0.0.1",
-        udid: info.udid,
-        pid: info.pid,
-      });
-    } catch {
-      // Skip malformed files
-    }
+// djb2 hash — must match the Swift side exactly
+function nervePort(udid: string, bundleId: string): number {
+  const key = `${udid}-${bundleId}`;
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) + hash + key.charCodeAt(i)) >>> 0;  // djb2, unsigned 32-bit
   }
-  return targets;
+  return 10000 + (hash % 55000);
 }
 
-function discoverBonjourTargets(): NerveTarget[] {
-  // Use dns-sd to browse for _nerve._tcp services (non-blocking check)
-  try {
-    // Quick one-shot browse with timeout
-    const result = execSync(
-      'dns-sd -B _nerve._tcp . 2>/dev/null & PID=$!; sleep 1; kill $PID 2>/dev/null; wait $PID 2>/dev/null',
-      { timeout: 3000, encoding: "utf-8" }
-    );
+// Track the active target (set by nerve_run, or auto-detected from booted sims)
+let activeTarget: { udid: string; bundleId: string } | null = null;
 
-    const targets: NerveTarget[] = [];
-    for (const line of result.split("\n")) {
-      const match = line.match(/Nerve-(\S+)/);
-      if (match) {
-        // Resolve would need another dns-sd call. For MVP, skip and rely on
-        // manual connection or iproxy.
-      }
-    }
-    return targets;
-  } catch {
-    return [];
-  }
-}
+let requestCounter = 0;
 
-// --- Connect-Per-Command WebSocket ---
-
-function getAliveTargets(): NerveTarget[] {
-  return [...discoverSimulatorTargets(), ...discoverBonjourTargets()];
-}
-
-function resolveTarget(targetId?: string): NerveTarget {
+function resolvePort(targetId?: string): number {
   if (targetId) {
+    // targetId format: "sim:{udid}:{bundleId}"
     const parts = targetId.split(":");
     if (parts.length >= 3 && parts[0] === "sim") {
-      const udid = parts[1];
-      const bundleId = parts.slice(2).join(":");
-      const portFile = path.join("/tmp/nerve-ports", `${udid}-${bundleId}.json`);
-
-      if (!fs.existsSync(portFile)) {
-        throw new Error(`Target not found: no port file for ${targetId}`);
-      }
-
-      const info = JSON.parse(fs.readFileSync(portFile, "utf-8"));
-      try { process.kill(info.pid, 0); } catch {
-        fs.unlinkSync(portFile);
-        throw new Error(`Target ${targetId} is not running (process dead)`);
-      }
-
-      return {
-        id: targetId, platform: "simulator",
-        bundleId: info.bundleId, appName: info.appName,
-        port: info.port, host: "127.0.0.1", udid: info.udid, pid: info.pid,
-      };
+      return nervePort(parts[1], parts.slice(2).join(":"));
     }
     throw new Error(`Unknown target format: ${targetId}`);
   }
 
-  const all = getAliveTargets();
-  if (all.length === 0) {
-    throw new Error("No Nerve instance found. Make sure your iOS app is running with Nerve.start() or launched via nerve_run.");
+  if (!activeTarget) {
+    throw new Error("No active target. Use nerve_run to launch an app first, or specify a target.");
   }
-  if (all.length > 1) {
-    const list = all.map(t => `  ${t.id} — ${t.appName} (${t.platform})`).join("\n");
-    throw new Error(`Multiple targets found. Specify 'target' parameter:\n${list}`);
-  }
-  return all[0];
+  return nervePort(activeTarget.udid, activeTarget.bundleId);
 }
-
-let requestCounter = 0;
 
 async function send(
   command: string,
@@ -144,8 +58,8 @@ async function send(
   targetId?: string,
   timeoutMs = 30000,
 ): Promise<string> {
-  const target = resolveTarget(targetId);
-  const url = `ws://${target.host}:${target.port}`;
+  const port = resolvePort(targetId);
+  const url = `ws://127.0.0.1:${port}`;
   const id = `req_${++requestCounter}`;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
@@ -733,6 +647,37 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: "nerve_sequence",
+    description:
+      "Execute multiple Nerve commands in a single call. Much faster than calling tools one-by-one because it eliminates round-trip delays between steps. Each step waits for UI to settle before the next runs. Returns the result of each step. Use this when you already know the sequence of actions to perform (e.g., tap tab → tap row → type text → submit).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        target: { type: "string", description: "Target ID. Auto-selects if only one connected." },
+        steps: {
+          type: "array",
+          description: "Array of commands to execute in order.",
+          items: {
+            type: "object",
+            properties: {
+              command: {
+                type: "string",
+                description: "Nerve command: tap, type, scroll, swipe, back, dismiss, view, double_tap, long_press, context_menu, drag_drop, pull_to_refresh, pinch, scroll_to_find, wait_idle, inspect, screenshot",
+              },
+              params: {
+                type: "object",
+                description: "Parameters for the command (e.g., {\"query\": \"#login-btn\"} for tap, {\"text\": \"hello\"} for type).",
+                additionalProperties: true,
+              },
+            },
+            required: ["command"],
+          },
+        },
+      },
+      required: ["steps"],
+    },
+  },
 ];
 
 // --- LLDB Session (Mac-side) ---
@@ -876,15 +821,24 @@ async function handleLLDB(params: Record<string, unknown>) {
 
   // Auto-attach if not already connected
   if (!lldbSession.isAttached()) {
-    let pid: number | undefined;
-    const targets = getAliveTargets();
-    if (targets.length > 0 && targets[0].pid) {
-      pid = targets[0].pid;
+    if (!activeTarget) {
+      return {
+        content: [{ type: "text", text: "Error: No running app found. Launch the app first with nerve_run." }],
+        isError: true,
+      };
     }
+
+    // Find PID by bundle ID from simctl
+    let pid: number | undefined;
+    try {
+      const out = await runShell(`xcrun simctl spawn "${activeTarget.udid}" launchctl list 2>/dev/null | grep "${activeTarget.bundleId}" | awk '{print $1}'`);
+      const parsed = parseInt(out.trim());
+      if (!isNaN(parsed)) pid = parsed;
+    } catch {}
 
     if (!pid) {
       return {
-        content: [{ type: "text", text: "Error: No running app found. Launch the app first with nerve_run." }],
+        content: [{ type: "text", text: "Error: Could not find running app process. Launch the app first with nerve_run." }],
         isError: true,
       };
     }
@@ -1022,38 +976,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   // Deeplink via simctl (Mac-side, when method is "simctl")
-  if (command === "deeplink" && (params.method === "simctl" || getAliveTargets().length === 0)) {
+  if (command === "deeplink" && (params.method === "simctl" || !activeTarget)) {
     return handleDeeplinkSimctl(params);
   }
 
-  // Special case: status doesn't need a connection
+  // Sequence: batch multiple commands in one call
+  if (command === "sequence") {
+    const steps = params.steps as Array<{ command: string; params?: Record<string, unknown> }>;
+    if (!steps || steps.length === 0) {
+      return {
+        content: [{ type: "text", text: "Error: 'steps' array is required and must not be empty" }],
+        isError: true,
+      };
+    }
+
+    const results: string[] = [];
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const stepParams = step.params ?? {};
+      try {
+        const result = await send(step.command, stepParams, targetId);
+        results.push(`[${i + 1}] ${step.command}: ${result}`);
+      } catch (e) {
+        results.push(`[${i + 1}] ${step.command}: Error — ${(e as Error).message}`);
+        // Stop on error — later steps likely depend on earlier ones
+        break;
+      }
+    }
+
+    return { content: [{ type: "text", text: results.join("\n\n") }] };
+  }
+
+  // Special case: status
   if (command === "status") {
-    const targets = getAliveTargets();
-    if (targets.length === 0) {
+    if (!activeTarget) {
       return {
         content: [
           {
             type: "text",
-            text: "No Nerve instances found.\n\nMake sure your iOS app includes the Nerve SPM package:\n  #if DEBUG\n  import Nerve\n  Nerve.start()\n  #endif\n\nThen build and run with nerve_run.",
+            text: "No active target.\n\nMake sure your iOS app includes the Nerve SPM package:\n  #if DEBUG\n  import Nerve\n  Nerve.start()\n  #endif\n\nThen build and run with nerve_run.",
           },
         ],
       };
     }
 
-    // Get status from each alive target
-    const results: string[] = [];
-    for (const target of targets) {
-      try {
-        const result = await send("status", {}, target.id);
-        results.push(result);
-      } catch (e) {
-        results.push(`${target.id}: error — ${(e as Error).message}`);
-      }
+    try {
+      const result = await send("status", {}, targetId);
+      return { content: [{ type: "text", text: result }] };
+    } catch (e) {
+      return {
+        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        isError: true,
+      };
     }
-
-    return {
-      content: [{ type: "text", text: results.join("\n\n") }],
-    };
   }
 
   try {
@@ -1211,35 +1186,23 @@ async function handleBuildRun(command: string, params: Record<string, unknown>) 
       // Not running
     }
 
-    // Clean up old port file
-    try {
-      await runShell(`rm -f "/tmp/nerve-ports/${udid}-${bundleId}.json"`);
-    } catch { /* ignore */ }
-
     // Launch
     await runShell(`xcrun simctl launch "${udid}" "${bundleId}"`);
     log.push("Launched.");
 
-    // Wait for Nerve to be ready: poll port file + TCP probe
-    const portFile = `/tmp/nerve-ports/${udid}-${bundleId}.json`;
-    const launchTime = Date.now();
+    // Set active target
+    activeTarget = { udid, bundleId };
+    const port = nervePort(udid, bundleId);
+
+    // Wait for Nerve to be ready: TCP probe on calculated port
     let nerveReady = false;
     for (let i = 0; i < 40; i++) {
-      if (fs.existsSync(portFile)) {
-        try {
-          const info = JSON.parse(fs.readFileSync(portFile, "utf-8"));
-          const fileTime = fs.statSync(portFile).mtimeMs;
-          if (fileTime >= launchTime - 2000) {
-            // Port file is fresh — TCP probe to verify server is accepting connections
-            if (await tcpProbe("127.0.0.1", info.port, 2000)) {
-              log.push(`Nerve ready on port ${info.port}`);
-              nerveReady = true;
-              break;
-            }
-          }
-        } catch { /* file being written, retry */ }
+      if (await tcpProbe("127.0.0.1", port, 500)) {
+        log.push(`Nerve ready on port ${port}`);
+        nerveReady = true;
+        break;
       }
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 250));
     }
 
     if (!nerveReady) {
@@ -1268,22 +1231,14 @@ async function handleGrantPermissions(params: Record<string, unknown>) {
     };
   }
 
-  // Find alive target to get UDID and bundle ID
-  const targets = getAliveTargets();
-  let udid: string | undefined;
-  let bundleId: string | undefined;
-
-  if (targets.length > 0) {
-    udid = targets[0].udid;
-    bundleId = targets[0].bundleId;
-  }
-
-  if (!udid || !bundleId) {
+  if (!activeTarget) {
     return {
-      content: [{ type: "text", text: "Error: No running Nerve instance found. Launch the app first." }],
+      content: [{ type: "text", text: "Error: No active target. Launch the app first with nerve_run." }],
       isError: true,
     };
   }
+
+  const { udid, bundleId } = activeTarget;
 
   const log: string[] = [];
   for (const service of services) {
@@ -1309,13 +1264,7 @@ async function handleDeeplinkSimctl(params: Record<string, unknown>) {
     };
   }
 
-  // Find UDID
-  let udid: string | undefined;
-  const targets = getAliveTargets();
-  if (targets.length > 0) {
-    udid = targets[0].udid;
-  }
-
+  let udid = activeTarget?.udid;
   if (!udid) {
     // Try booted simulators
     try {
