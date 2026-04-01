@@ -2,6 +2,7 @@
 
 import UIKit
 import NerveObjC
+import os
 
 // MARK: - Interaction Commands
 
@@ -65,6 +66,7 @@ extension NerveEngine {
 
                 // 3. HID tap
                 NerveSynthesizeTap(point, window)
+                NerveEngine.showTapIndicator(at: point, in: window)
                 NerveElementResolver.invalidateCache()
                 continuation.resume(returning: .success(command.id, "Tapped \(desc) at \(Int(point.x)),\(Int(point.y))"))
             }
@@ -648,6 +650,8 @@ extension NerveEngine {
     private func checkForRunningAnimations() -> Bool {
         let windows = NerveGetAllWindows() as? [UIWindow] ?? NerveElementResolver.allWindowsPublic()
         for window in windows {
+            // Skip the tap indicator overlay window
+            if window.windowLevel.rawValue > UIWindow.Level.alert.rawValue { continue }
             if hasAnimations(in: window.layer) { return true }
         }
         return false
@@ -676,9 +680,9 @@ extension NerveEngine {
     /// Waits for the UI to settle after an interaction.
     /// Checks animations and VC transitions. Does NOT wait for network.
     @MainActor
-    func waitForUIToSettle(timeout: TimeInterval = 1.0, quietPeriod: TimeInterval = 0.15) async {
+    func waitForUIToSettle(timeout: TimeInterval = 0.4, quietPeriod: TimeInterval = 0.05) async {
         let startTime = Date()
-        let pollInterval: TimeInterval = 0.05
+        let pollInterval: TimeInterval = 0.02
         var sawActivity = false
 
         while Date().timeIntervalSince(startTime) < timeout {
@@ -798,6 +802,52 @@ extension NerveEngine {
             return "Tapped '\(label)'"
         }
         return nil
+    }
+
+    // MARK: - Tap Indicator
+
+    @MainActor
+    static func showTapIndicator(at point: CGPoint, in window: UIWindow) {
+        os_log("[Nerve] showTapIndicator called at %d,%d", Int(point.x), Int(point.y))
+        os_log("[Nerve] window: %{public}@, windowScene: %{public}@", "\(window)", "\(String(describing: window.windowScene))")
+
+        guard let scene = window.windowScene else {
+            os_log("[Nerve] showTapIndicator: no windowScene, aborting")
+            return
+        }
+
+        os_log("[Nerve] creating overlay window on scene: %{public}@", "\(scene)")
+
+        let size: CGFloat = 44
+        let indicator = UIView(frame: CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size))
+        indicator.backgroundColor = UIColor.systemRed.withAlphaComponent(0.5)
+        indicator.layer.cornerRadius = size / 2
+        indicator.layer.borderWidth = 3
+        indicator.layer.borderColor = UIColor.systemRed.cgColor
+        indicator.isUserInteractionEnabled = false
+
+        // Use an overlay window with windowScene to ensure visibility above modals/sheets
+        let overlayWindow = UIWindow(windowScene: scene)
+        overlayWindow.windowLevel = .alert + 1
+        overlayWindow.isUserInteractionEnabled = false
+        overlayWindow.backgroundColor = .clear
+        overlayWindow.isHidden = false
+        overlayWindow.addSubview(indicator)
+
+        indicator.transform = CGAffineTransform(scaleX: 1.8, y: 1.8)
+        indicator.alpha = 0
+
+        UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
+            indicator.alpha = 1
+            indicator.transform = .identity
+        } completion: { _ in
+            UIView.animate(withDuration: 0.3, delay: 0.2, options: .curveEaseIn) {
+                indicator.alpha = 0
+                indicator.transform = CGAffineTransform(scaleX: 2.0, y: 2.0)
+            } completion: { _ in
+                overlayWindow.isHidden = true
+            }
+        }
     }
 }
 

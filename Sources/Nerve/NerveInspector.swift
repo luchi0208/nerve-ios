@@ -3,6 +3,25 @@
 import UIKit
 import NerveObjC
 
+// MARK: - Safe Int conversion
+
+private func safeInt(_ value: CGFloat) -> Int {
+    guard value.isFinite else { return 0 }
+    return Int(value)
+}
+
+private extension CGRect {
+    var isFiniteRect: Bool {
+        origin.x.isFinite && origin.y.isFinite && size.width.isFinite && size.height.isFinite
+    }
+}
+
+private extension CGPoint {
+    var isFinitePoint: Bool {
+        x.isFinite && y.isFinite
+    }
+}
+
 // MARK: - Inspection Commands
 
 extension NerveEngine {
@@ -20,20 +39,24 @@ extension NerveEngine {
         let modalState = findModalState(in: windows)
 
         var lines: [String] = []
-        lines.append("screen \(Int(screenSize.width))x\(Int(screenSize.height)) | nav=\"\(navTitle ?? "none")\" | modal=\(modalState)")
+        lines.append("screen \(safeInt(screenSize.width))x\(safeInt(screenSize.height)) | nav=\"\(navTitle ?? "none")\" | modal=\(modalState)")
         lines.append("---")
 
         for el in elements {
+            let ap = el.activationPoint
+            let f = el.frame
+
+            // Skip elements with non-finite geometry
+            guard f.isFiniteRect && ap.isFinitePoint else { continue }
+
             var parts: [String] = ["\(el.ref) \(el.type)"]
 
             if let label = el.label { parts.append("\"\(label)\"") }
             if let id = el.identifier { parts.append("#\(id)") }
             if let value = el.value { parts.append("val=\(value)") }
 
-            let ap = el.activationPoint
             parts.append("tap=\(Int(ap.x)),\(Int(ap.y))")
 
-            let f = el.frame
             if f.origin.x > 10 || f.size.width < screenSize.width - 20 {
                 parts.append("x=\(Int(f.origin.x))")
             }
@@ -84,7 +107,7 @@ extension NerveEngine {
         let typeName = element.rawElement.map { NerveClassName($0) } ?? element.type
         lines.append("view: \(typeName) \(element.identifier.map { "#\($0)" } ?? "")")
         lines.append("  class: \(typeName)")
-        lines.append("  frame: \(Int(element.frame.origin.x)),\(Int(element.frame.origin.y)) \(Int(element.frame.width))x\(Int(element.frame.height))")
+        lines.append("  frame: \(safeInt(element.frame.origin.x)),\(safeInt(element.frame.origin.y)) \(safeInt(element.frame.width))x\(safeInt(element.frame.height))")
 
         let traits = nerveDescribeTraits(element.traits)
         lines.append("  accessibility: label=\"\(element.label ?? "nil")\" id=\"\(element.identifier ?? "nil")\" traits=[\(traits)]")
@@ -168,6 +191,7 @@ extension NerveEngine {
         let indent = String(repeating: "  ", count: depth)
         let className = NerveClassName(view)
         let f = view.frame
+        guard f.isFiniteRect else { return }
         var line = "\(indent)\(className) \(Int(f.origin.x)),\(Int(f.origin.y)) \(Int(f.width))x\(Int(f.height))"
 
         if let label = view.accessibilityLabel { line += " \"\(label)\"" }

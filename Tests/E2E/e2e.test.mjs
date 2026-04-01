@@ -23,7 +23,6 @@ const NERVE_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "../..")
 const PORT_DIR = "/tmp/nerve-ports";
 const TIMEOUT_MS = 10000;
 
-let ws;
 let requestId = 0;
 let testsPassed = 0;
 let testsFailed = 0;
@@ -55,27 +54,40 @@ function skip(name, reason) {
   console.log(`  ○ ${name} (skipped: ${reason})`);
 }
 
-/** Send a command and wait for the response */
+/** Send a command via a fresh WebSocket connection (matches MCP server behavior) */
 function send(command, params = {}) {
   return new Promise((resolve, reject) => {
     const id = `e2e_${++requestId}`;
+    const conn = new WebSocket(`ws://127.0.0.1:${currentPort}`);
+    let settled = false;
+
     const timer = setTimeout(() => {
-      reject(new Error(`Timeout waiting for response to '${command}'`));
+      if (!settled) { settled = true; conn.terminate(); reject(new Error(`Timeout waiting for response to '${command}'`)); }
     }, TIMEOUT_MS);
 
-    const handler = (data) => {
+    conn.on("open", () => {
+      conn.send(JSON.stringify({ id, command, params }));
+    });
+
+    conn.on("message", (data) => {
       try {
         const response = JSON.parse(data.toString());
-        if (response.id === id) {
-          ws.off("message", handler);
+        if (response.id === id && !settled) {
+          settled = true;
           clearTimeout(timer);
+          conn.close();
           resolve(response);
         }
       } catch {}
-    };
-    ws.on("message", handler);
+    });
 
-    ws.send(JSON.stringify({ id, command, params }));
+    conn.on("error", (err) => {
+      if (!settled) { settled = true; clearTimeout(timer); reject(new Error(`Connection error: ${err.message}`)); }
+    });
+
+    conn.on("close", () => {
+      if (!settled) { settled = true; clearTimeout(timer); reject(new Error("Connection closed before response")); }
+    });
   });
 }
 
@@ -112,11 +124,6 @@ async function restartApp() {
     return;
   }
 
-  // Close existing WebSocket
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.close();
-  }
-
   // Terminate the app
   try {
     execSync(`xcrun simctl terminate "${simulatorUDID}" com.nerve.example 2>/dev/null`);
@@ -143,16 +150,16 @@ async function restartApp() {
     await sleep(500);
   }
 
-  // Reconnect WebSocket (use 127.0.0.1 to avoid IPv6 resolution issues)
-  ws = new WebSocket(`ws://127.0.0.1:${currentPort}`);
-  await new Promise((resolve, reject) => {
-    ws.on("open", resolve);
-    ws.on("error", reject);
-    setTimeout(() => reject(new Error("WebSocket reconnect timeout")), 5000);
-  });
-
-  // Wait for app to be ready
-  await sleep(500);
+  // Wait for app to be ready — verify with a status ping
+  for (let i = 0; i < 10; i++) {
+    try {
+      await send("status");
+      return;
+    } catch {
+      await sleep(500);
+    }
+  }
+  throw new Error("App did not become ready after restart");
 }
 
 // --- Build & Launch ---
@@ -273,11 +280,16 @@ async function findRunningInstance() {
     return parseInt(process.argv[portArg + 1]);
   }
 
-  // Check port files
+  // Check port files — prefer com.nerve.example
   if (!fs.existsSync(PORT_DIR)) return null;
   const files = fs.readdirSync(PORT_DIR).filter((f) => f.endsWith(".json"));
+  const sorted = files.sort((a, b) => {
+    const aMatch = a.includes("com.nerve.example") ? 0 : 1;
+    const bMatch = b.includes("com.nerve.example") ? 0 : 1;
+    return aMatch - bMatch;
+  });
 
-  for (const file of files) {
+  for (const file of sorted) {
     try {
       const info = JSON.parse(
         fs.readFileSync(path.join(PORT_DIR, file), "utf-8")
@@ -1657,28 +1669,20 @@ async function main() {
     }
   }
 
-  // Connect WebSocket
+  // Verify connection with a status ping
   currentPort = port;
   console.log(`\nConnecting to ws://127.0.0.1:${port}...`);
-  ws = new WebSocket(`ws://127.0.0.1:${port}`);
+  try {
+    await send("status");
+    console.log("Connected!\n");
+  } catch (err) {
+    console.error(`Connection failed: ${err.message}`);
+    process.exit(1);
+  }
 
-  await new Promise((resolve, reject) => {
-    ws.on("open", () => {
-      console.log("Connected!\n");
-      console.log("═══════════════════════════════════");
-      console.log("  Nerve E2E Tests");
-      console.log("═══════════════════════════════════");
-      resolve();
-    });
-    ws.on("error", (err) => {
-      console.error(`WebSocket connection failed: ${err.message}`);
-      reject(err);
-    });
-    setTimeout(
-      () => reject(new Error("WebSocket connection timeout")),
-      5000
-    );
-  });
+  console.log("═══════════════════════════════════");
+  console.log("  Nerve E2E Tests");
+  console.log("═══════════════════════════════════");
 
   // Run test suites
   await testConnection();
@@ -1750,7 +1754,6 @@ async function main() {
     console.log();
   }
 
-  ws.close();
   process.exit(testsFailed > 0 ? 1 : 0);
 }
 
