@@ -1,6 +1,7 @@
 #if DEBUG
 
 import Foundation
+import OSLog
 import UIKit
 
 // MARK: - Console Commands
@@ -13,7 +14,8 @@ extension NerveEngine {
         let level = command.stringParam("level")
         let since = command.stringParam("since")
 
-        var logs = console.recentLogs(limit: limit)
+        // Fetch all logs when filtering, then apply limit after
+        var logs = console.recentLogs(limit: filter != nil || level != nil ? console.totalCount : limit)
 
         if since == "last_action", let actionTime = lastActionTime {
             logs = logs.filter { $0.timestamp >= actionTime }
@@ -27,6 +29,8 @@ extension NerveEngine {
             let minLevel = NerveConsole.LogLevel(rawValue: level) ?? .debug
             logs = logs.filter { $0.level.priority >= minLevel.priority }
         }
+
+        logs = Array(logs.suffix(limit))
 
         var lines = ["console: \(console.totalCount) lines (showing \(logs.count))", "---"]
         for log in logs {
@@ -124,11 +128,29 @@ final class NerveConsole {
     private var stderrPipe: Pipe?
     private var originalStdout: Int32 = -1
     private var originalStderr: Int32 = -1
+    private var osLogStore: OSLogStore?
+    private var osLogLastDate: Date?
+    private var osLogTimer: DispatchSourceTimer?
+    private let noisySubsystems: Set<String> = [
+        "com.apple.UIKit", "com.apple.Accessibility",
+        "com.apple.network", "com.apple.xpc",
+        "com.apple.runningboard", "com.apple.CFBundle",
+        "com.apple.CoreAnimation", "com.apple.QuartzCore",
+        "com.apple.BaseBoard", "com.apple.BackBoardServices",
+        "com.apple.FrontBoardServices",
+    ]
 
     var totalCount: Int { lock.withLock { logs.count } }
 
-    func start() { captureStdout() }
-    func stop() { restoreStdout() }
+    func start() {
+        captureStdout()
+        startOSLogCapture()
+    }
+
+    func stop() {
+        restoreStdout()
+        stopOSLogCapture()
+    }
 
     func addLog(_ message: String, level: LogLevel = .info) {
         lock.withLock {
@@ -151,12 +173,19 @@ final class NerveConsole {
 
         guard let stdoutPipe, let stderrPipe else { return }
 
+        // Force line-buffering so print() flushes on every newline.
+        // Without this, simctl launch sets stdout to full-buffering
+        // (because fd 1 starts as /dev/null) and output never reaches the pipe.
+        setvbuf(stdout, nil, _IOLBF, 0)
+        setvbuf(stderr, nil, _IONBF, 0)
+
         dup2(stdoutPipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
         dup2(stderrPipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if data.isEmpty { return }
+            // Forward to original stdout (visible in Xcode console)
             if let fd = self?.originalStdout, fd >= 0 {
                 _ = data.withUnsafeBytes { write(fd, $0.baseAddress!, data.count) }
             }
@@ -181,6 +210,69 @@ final class NerveConsole {
                 }
             }
         }
+
+    }
+
+    // MARK: - OSLog Capture
+
+    @discardableResult
+    private func startOSLogCapture() -> Bool {
+        guard #available(iOS 15.0, *) else { return false }
+        // OSLogStoreCurrentProcessIdentifier (rawValue 1) — available on iOS 15+
+        // but Swift overlay doesn't expose .currentProcess on iOS
+        guard let scope = OSLogStore.Scope(rawValue: 1),
+              let store = try? OSLogStore(scope: scope) else { return false }
+        osLogStore = store
+        osLogLastDate = Date()
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.pollOSLog() }
+        timer.resume()
+        osLogTimer = timer
+        return true
+    }
+
+    private func stopOSLogCapture() {
+        osLogTimer?.cancel()
+        osLogTimer = nil
+        osLogStore = nil
+    }
+
+    private func pollOSLog() {
+        guard #available(iOS 15.0, *),
+              let store = osLogStore,
+              let since = osLogLastDate else { return }
+
+        let position = store.position(date: since)
+        guard let entries = try? store.getEntries(at: position) else { return }
+
+        var latestDate = since
+        for entry in entries {
+            guard let logEntry = entry as? OSLogEntryLog else { continue }
+            guard logEntry.date > since else { continue }
+            // print()/NSLog captured via stdout/stderr pipes — only capture os_log with a subsystem
+            if logEntry.subsystem.isEmpty { continue }
+            // Skip Nerve's own os_log messages
+            if logEntry.composedMessage.hasPrefix("[Nerve]") { continue }
+            // Skip noisy system subsystems
+            if noisySubsystems.contains(logEntry.subsystem) { continue }
+
+            let level: LogLevel
+            switch logEntry.level {
+            case .debug: level = .debug
+            case .info: level = .info
+            case .notice: level = .info
+            case .error: level = .error
+            case .fault: level = .error
+            default: level = .info
+            }
+
+            addLog("[\(logEntry.subsystem)] \(logEntry.composedMessage)", level: level)
+
+            if logEntry.date > latestDate { latestDate = logEntry.date }
+        }
+        osLogLastDate = latestDate
     }
 
     private func restoreStdout() {
