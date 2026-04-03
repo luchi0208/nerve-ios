@@ -158,4 +158,10 @@ NSUInteger NerveActiveTraceCount(void);
 /// Starts the framework when injected via DYLD_INSERT_LIBRARIES.
 void nerve_framework_init(void);
 
+#pragma mark - Debug
+
+/// Install sendEvent: swizzle to log touch delivery
+void NerveInstallSendEventLogging(void);
+void NerveEnableSendEventLogging(BOOL enabled);
+
 NS_ASSUME_NONNULL_END

@@ -7,6 +7,7 @@
 #import <malloc/malloc.h>
 #import <mach/mach.h>
 #import <dlfcn.h>
+#import <os/log.h>
 
 // MARK: - View Hierarchy
 
@@ -1332,25 +1333,72 @@ NSUInteger NerveActiveTraceCount(void) {
 
 // MARK: - Bootstrap
 
+static void nerve_call_auto_start(void) {
+    typedef void (*NerveStartFunc)(void);
+    NerveStartFunc startFunc = (NerveStartFunc)dlsym(RTLD_DEFAULT, "nerve_auto_start");
+    if (startFunc) {
+        startFunc();
+    }
+}
+
 void nerve_framework_init(void) {
     // This is called from __attribute__((constructor)) in NerveBootstrap.c
-    // We dispatch to avoid blocking dyld
+    // Register observer synchronously — must happen before the notification fires
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                      object:nil
+                                                       queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification *note) {
+        nerve_call_auto_start();
+    }];
+
+    // If app already launched (e.g., dylib injected after launch), start immediately
     dispatch_async(dispatch_get_main_queue(), ^{
-        // The Swift entry point will be called when UIApplication is ready
-        // We use NSNotificationCenter to wait for app launch
-        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
-                                                          object:nil
-                                                           queue:[NSOperationQueue mainQueue]
-                                                      usingBlock:^(NSNotification *note) {
-            // Call Swift entry point
-            // This will be connected via @_cdecl in Nerve.swift
-            typedef void (*NerveStartFunc)(void);
-            NerveStartFunc startFunc = (NerveStartFunc)dlsym(RTLD_DEFAULT, "nerve_auto_start");
-            if (startFunc) {
-                startFunc();
-            }
-        }];
+        if ([UIApplication sharedApplication] != nil) {
+            nerve_call_auto_start();
+        }
     });
+}
+
+// MARK: - Debug: Swizzle UIApplication sendEvent to confirm touch delivery
+
+static IMP _originalSendEvent = NULL;
+static BOOL _nerveSendEventLogging = NO;
+
+static void nerve_sendEvent(id self, SEL _cmd, UIEvent *event) {
+    if (_nerveSendEventLogging && event.type == UIEventTypeTouches) {
+        NSSet *touches = [event allTouches];
+        for (UITouch *touch in touches) {
+            CGPoint loc = [touch locationInView:touch.window];
+            // Check private properties that might distinguish synthetic touches
+            NSNumber *isTap = [touch respondsToSelector:NSSelectorFromString(@"_isTapTouch")]
+                ? [touch valueForKey:@"_isTapTouch"] : nil;
+            NSNumber *pressure = @(touch.force);
+            NSNumber *touchType = @(touch.type);
+            NSLog(@"[Nerve][sendEvent] phase=%ld point=(%.0f,%.0f) view=%@ type=%@ force=%.2f _isTapTouch=%@ tapCount=%ld gestureRecognizers=%lu",
+                  (long)touch.phase, loc.x, loc.y,
+                  touch.view ? NSStringFromClass([touch.view class]) : @"nil",
+                  touchType, touch.force,
+                  isTap ?: @"N/A",
+                  (long)touch.tapCount,
+                  (unsigned long)touch.gestureRecognizers.count);
+        }
+    }
+    ((void(*)(id, SEL, UIEvent *))_originalSendEvent)(self, _cmd, event);
+}
+
+void NerveInstallSendEventLogging(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Method m = class_getInstanceMethod([UIApplication class], @selector(sendEvent:));
+        _originalSendEvent = method_getImplementation(m);
+        method_setImplementation(m, (IMP)nerve_sendEvent);
+        _nerveSendEventLogging = YES;
+        NSLog(@"[Nerve] sendEvent logging installed");
+    });
+}
+
+void NerveEnableSendEventLogging(BOOL enabled) {
+    _nerveSendEventLogging = enabled;
 }
 
 #endif

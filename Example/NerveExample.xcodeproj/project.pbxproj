@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 51;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -13,8 +13,9 @@
 
 /* Begin PBXFileReference section */
 		49E6EFB96ED2CECFF173FF48 /* Nerve */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Nerve; path = ..; sourceTree = SOURCE_ROOT; };
-		70748C68B9B24F12DD14119A /* NerveExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NerveExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		70748C68B9B24F12DD14119A /* NerveExample.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NerveExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7495E17AE97680B7DC311B2F /* NerveExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NerveExampleApp.swift; sourceTree = "<group>"; };
+		96DFEF82712928B2D1428436 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +41,7 @@
 		932F5858AD445A5A62818C66 /* NerveExample */ = {
 			isa = PBXGroup;
 			children = (
+				96DFEF82712928B2D1428436 /* Info.plist */,
 				7495E17AE97680B7DC311B2F /* NerveExampleApp.swift */,
 			);
 			path = NerveExample;
@@ -91,6 +93,8 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = CF6389F9EF2ECF7869603D50 /* Build configuration list for PBXProject "NerveExample" */;
 			compatibilityVersion = "Xcode 10.0";
@@ -183,7 +187,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = H44363PTG7;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NerveExample/Info.plist;
 				INFOPLIST_GENERATION_MODE = GeneratedByXcode;
@@ -270,7 +273,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = H44363PTG7;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NerveExample/Info.plist;
 				INFOPLIST_GENERATION_MODE = GeneratedByXcode;

@@ -17,6 +17,9 @@ mcp-server/dist/
 /tmp/nerve-ports/
 /tmp/nerve-nav/
 
+# SwiftPM
+.swiftpm/
+
 # IDE
 .idea/
 .vscode/

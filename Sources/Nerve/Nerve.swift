@@ -19,7 +19,7 @@ public enum Nerve {
 }
 
 @_cdecl("nerve_auto_start")
-func nerveAutoStart() {
+public func nerveAutoStart() {
     Nerve.start()
 }
 

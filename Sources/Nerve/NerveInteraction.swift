@@ -26,6 +26,16 @@ extension NerveEngine {
                 if let coords = NerveElementResolver.parseCoordinates(query) {
                     point = coords
                     desc = "\(Int(coords.x)),\(Int(coords.y))"
+
+                    // For coordinate taps, check if the point hits a UIAlertController action.
+                    // HID synthetic touches create indirect UITouch (type=1) which alert
+                    // gesture recognizers reject. Use KVC invocation instead.
+                    if let alertLabel = self.alertActionLabel(at: coords),
+                       let result = self.invokeAlertAction(label: alertLabel) {
+                        NerveElementResolver.invalidateCache()
+                        continuation.resume(returning: .success(command.id, result))
+                        return
+                    }
                 } else {
                     guard let element = NerveElementResolver.resolve(query: query) else {
                         continuation.resume(returning: .error(command.id, "Element not found: '\(query)'"))
@@ -38,8 +48,10 @@ extension NerveEngine {
                     self.navMap.lastTappedElement = (label: element.label, identifier: element.identifier)
 
                     // Alert/action sheet buttons don't respond to HID events.
+                    // HID synthetic touches create indirect UITouch (type=1) which alert
+                    // gesture recognizers (_UIInterfaceActionSelectByPressGestureRecognizer) reject.
                     // Invoke the UIAlertAction handler directly via KVC.
-                    if element.presentationContext == "modal" {
+                    if element.presentationContext == "modal" || element.presentationContext == "popover" {
                         if let result = self.invokeAlertAction(label: element.label) {
                             NerveElementResolver.invalidateCache()
                             continuation.resume(returning: .success(command.id, result))
@@ -780,9 +792,30 @@ extension NerveEngine {
     }
     // MARK: - Alert Action Invocation
 
+    /// Find the accessibility label of a UIAlertController action view at a screen point.
+    /// Returns nil if the point doesn't hit an alert action view.
+    @MainActor
+    private func alertActionLabel(at point: CGPoint) -> String? {
+        let windows = NerveGetAllWindows() as? [UIWindow] ?? NerveElementResolver.allWindowsPublic()
+        for window in windows.reversed() {
+            let wp = window.convert(point, from: nil)
+            guard let hit = window.hitTest(wp, with: nil) else { continue }
+            // Walk up the view hierarchy looking for _UIAlertControllerActionView
+            var view: UIView? = hit
+            while let v = view {
+                if NSStringFromClass(type(of: v)).contains("AlertControllerActionView") {
+                    return v.accessibilityLabel
+                }
+                view = v.superview
+            }
+        }
+        return nil
+    }
+
     /// Invoke a UIAlertAction handler directly via KVC.
     /// HID touch synthesis doesn't work on alert buttons — their gesture
-    /// recognizers reject synthetic events.
+    /// recognizers (_UIInterfaceActionSelectByPressGestureRecognizer) reject
+    /// indirect UITouch events (type=1) created by HID synthesis.
     @MainActor
     private func invokeAlertAction(label: String?) -> String? {
         guard let label else { return nil }
