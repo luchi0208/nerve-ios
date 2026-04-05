@@ -1,6 +1,6 @@
 # Nerve
 
-Nerve gives AI agents eyes and hands inside iOS Simulator apps.
+Nerve gives AI agents eyes and hands inside iOS apps — on Simulator and physical devices.
 
 Add the Nerve Swift package to your app, and an MCP server connects your AI agent to it. The agent can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug — all through natural language.
 
@@ -174,8 +174,12 @@ AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit
 | Tool | Description |
 |------|-------------|
 | `nerve_run` | Build, install, and launch on the simulator |
+| `nerve_run_device` | Build, install, and launch on a connected physical device |
 | `nerve_build` | Build only |
 | `nerve_status` | Show connected targets |
+| `nerve_list_simulators` | List available simulators |
+| `nerve_boot_simulator` | Boot a simulator by name or UDID |
+| `nerve_list_devices` | List connected physical devices |
 | `nerve_grant_permissions` | Pre-grant iOS permissions |
 
 ## Element Queries
@@ -214,7 +218,7 @@ Nerve/
     NerveObjC/       ObjC/C bridge — touch synthesis, heap walking, swizzling
   Example/           Example app with test views
   Tests/
-    E2E/             End-to-end tests (82 tests)
+    E2E/             End-to-end tests (83 tests)
     NerveTests/      Unit tests
   mcp-server/        MCP server (TypeScript)
   cli/               CLI tool
