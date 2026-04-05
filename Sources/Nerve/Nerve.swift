@@ -33,6 +33,9 @@ final class NerveEngine {
     let navMap = NerveNavigationMap()
     private var started = false
     var lastActionTime: Date?
+    /// Set by invokeAlertAction — the VC whose presentedViewController was just dismissed.
+    /// The post-tap settle logic waits for this VC's presentedViewController to become nil.
+    @MainActor var pendingModalDismissVC: UIViewController?
 
     func start(port: UInt16 = 0) {
         guard !started else { return }
@@ -123,6 +126,7 @@ final class NerveEngine {
 
         // Auto-wait for UI to settle after interaction commands, then auto-append view
         if response.ok && Self.uiActionCommands.contains(command.command) {
+            await waitForModalDismissIfNeeded()
             await waitForUIToSettle()
             let viewResponse = await handleView(command)
             if viewResponse.ok {

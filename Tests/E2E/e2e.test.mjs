@@ -766,33 +766,22 @@ async function testAlertAndSheet() {
       fail("alert buttons visible in view output", "Alert content not found");
     }
 
-    // Tap Confirm button to dismiss alert
+    // Tap Confirm button to dismiss alert — the auto-appended view in the
+    // tap response should show the underlying screen, NOT the alert.
     const tapConfirm = await send("tap", { query: "@Confirm" });
     if (tapConfirm.ok) {
-      // Wait for alert dismiss animation (iOS 26 Liquid Glass)
-      await sleep(800);
-      const lookAfterConfirm = await send("view");
-      if (!lookAfterConfirm.data.includes("Confirm Action")) {
-        pass("tap alert Confirm button dismisses alert");
+      if (!tapConfirm.data.includes("Confirm Action")) {
+        pass("tap alert Confirm: auto-view shows underlying screen (no alert)");
       } else {
-        fail("tap alert Confirm button dismisses alert", "Alert still showing after tap");
+        fail("tap alert Confirm: auto-view shows underlying screen", "Alert still showing in tap response");
+      }
+      if (tapConfirm.data.includes("show-alert-btn") || tapConfirm.data.includes("Show Alert")) {
+        pass("tap alert Confirm: underlying screen elements visible");
+      } else {
+        fail("tap alert Confirm: underlying screen elements visible", "Underlying screen not in tap response");
       }
     } else {
       fail("tap alert Confirm button", tapConfirm.data);
-    }
-
-    await send("wait_idle", { timeout: 2, quiet: 0.5 });
-
-    // Verify we can see the sheet button
-    let lookAfterAlert = await send("view");
-    if (!lookAfterAlert.data.includes("show-sheet-btn") && !lookAfterAlert.data.includes("Show Sheet")) {
-      // Still not visible — retry
-      lookAfterAlert = await send("view");
-    }
-    if (!lookAfterAlert.data.includes("show-sheet-btn") && !lookAfterAlert.data.includes("Show Sheet")) {
-      // Last resort — navigate back to the test screen fresh
-      await send("tap", { query: "@Home" });
-      await goToTestScreen("test-alerts");
     }
 
     // Test sheet — try identifier first, then label, then coordinate

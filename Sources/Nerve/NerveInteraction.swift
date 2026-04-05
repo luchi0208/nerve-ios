@@ -482,6 +482,7 @@ extension NerveEngine {
         // Check for presented VC first (dismiss modal/sheet)
         if let window = windows.first, let topVC = topViewController(in: window) {
             if topVC.presentingViewController != nil {
+                pendingModalDismissVC = topVC.presentingViewController
                 topVC.dismiss(animated: true)
                 NerveElementResolver.invalidateCache()
                 NervePostAccessibilityNotifications()
@@ -514,6 +515,7 @@ extension NerveEngine {
 
         // Dismiss presented VC
         if let window = windows.first, let topVC = topViewController(in: window), topVC.presentingViewController != nil {
+            pendingModalDismissVC = topVC.presentingViewController
             topVC.dismiss(animated: true)
             NerveElementResolver.invalidateCache()
             NervePostAccessibilityNotifications()
@@ -687,6 +689,23 @@ extension NerveEngine {
         return false
     }
 
+    // MARK: - Wait for Modal Dismiss
+
+    /// If a modal (alert/action sheet) was just dismissed via invokeAlertAction,
+    /// wait for the presenting VC's presentedViewController to become nil.
+    @MainActor
+    func waitForModalDismissIfNeeded(timeout: TimeInterval = 1.0) async {
+        guard let presentingVC = pendingModalDismissVC else { return }
+        pendingModalDismissVC = nil
+
+        let startTime = Date()
+        while Date().timeIntervalSince(startTime) < timeout {
+            // Yield to let SwiftUI process the binding change and dismiss the alert
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            if presentingVC.presentedViewController == nil { return }
+        }
+    }
+
     // MARK: - Auto-Wait for UI Settle
 
     /// Waits for the UI to settle after an interaction.
@@ -825,12 +844,21 @@ extension NerveEngine {
             guard let alert = topVC as? UIAlertController ?? topVC.presentedViewController as? UIAlertController else { continue }
             guard let action = alert.actions.first(where: { $0.title == label }) else { continue }
 
+            // Record the presenting VC so settle logic can wait for dismiss to complete
+            let presentingVC = alert.presentingViewController
+            pendingModalDismissVC = presentingVC
+
             typealias ActionHandler = @convention(block) (UIAlertAction) -> Void
-            alert.dismiss(animated: false) {
-                if let handler = action.value(forKey: "handler") {
-                    let block = unsafeBitCast(handler as AnyObject, to: ActionHandler.self)
-                    block(action)
-                }
+            // Call the handler first — for SwiftUI alerts, this flips the binding
+            // (e.g. showAlert = false), which triggers SwiftUI to dismiss the alert.
+            // Calling dismiss() first doesn't work because SwiftUI re-presents it.
+            if let handler = action.value(forKey: "handler") {
+                let block = unsafeBitCast(handler as AnyObject, to: ActionHandler.self)
+                block(action)
+            }
+            // Dismiss explicitly as fallback for UIKit-managed alerts
+            if presentingVC?.presentedViewController != nil {
+                alert.dismiss(animated: false)
             }
             return "Tapped '\(label)'"
         }
