@@ -584,6 +584,30 @@ const TOOLS = [
     },
   },
   {
+    name: "nerve_run_device",
+    description:
+      "Build, install, and launch an iOS app on a connected physical device. Requires the device to be paired and a valid code signing identity.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        scheme: { type: "string", description: "Xcode scheme to build." },
+        workspace: { type: "string", description: "Path to .xcworkspace (optional)." },
+        project: { type: "string", description: "Path to .xcodeproj (optional)." },
+        device: { type: "string", description: "Device name or UDID. If omitted, uses the first available paired device." },
+        team: { type: "string", description: "Apple Development Team ID for code signing (optional if set in Xcode project)." },
+      },
+      required: ["scheme"],
+    },
+  },
+  {
+    name: "nerve_list_devices",
+    description: "List connected physical iOS devices and their state (available/unavailable).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
     name: "nerve_trace",
     description:
       "Trace method calls at runtime via swizzling. Logs every invocation to the console (read with nerve_console). Zero overhead compared to LLDB breakpoints. Use this to understand code flow without rebuilding.",
@@ -957,6 +981,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return handleBuildRun(command, params);
   }
 
+  if (command === "run_device") {
+    return handleRunDevice(params);
+  }
+
+  if (command === "list_devices") {
+    return handleListDevices();
+  }
+
   // Grant permissions via simctl (Mac-side)
   if (command === "grant_permissions") {
     return handleGrantPermissions(params);
@@ -1208,6 +1240,140 @@ async function handleBuildRun(command: string, params: Record<string, unknown>) 
     if (!nerveReady) {
       log.push("Nerve did not start. Ensure your app includes the Nerve SPM package with Nerve.start() in #if DEBUG.");
     }
+
+    return { content: [{ type: "text", text: log.join("\n") }] };
+  } catch (e) {
+    const error = e as Error;
+    log.push(`Error: ${error.message}`);
+    return {
+      content: [{ type: "text", text: log.join("\n") }],
+      isError: true,
+    };
+  }
+}
+
+// --- Physical Device (Mac-side) ---
+
+async function handleListDevices() {
+  try {
+    const output = await runShell("xcrun devicectl list devices 2>&1");
+    return { content: [{ type: "text", text: output.trim() }] };
+  } catch (e) {
+    return {
+      content: [{ type: "text", text: `Error listing devices: ${(e as Error).message}` }],
+      isError: true,
+    };
+  }
+}
+
+async function findDeviceIdentifier(nameOrUDID?: string): Promise<{ identifier: string; name: string }> {
+  const output = await runShell("xcrun devicectl list devices -j 2>/dev/null");
+  const data = JSON.parse(output);
+  const devices = data?.result?.devices ?? [];
+
+  for (const d of devices) {
+    if (d.connectionProperties?.transportType !== "wired" && d.connectionProperties?.transportType !== "localNetwork") continue;
+    const devName = d.deviceProperties?.name ?? "";
+    const devId = d.hardwareProperties?.udid ?? d.identifier ?? "";
+    const coreId = d.identifier ?? "";
+
+    if (nameOrUDID) {
+      if (devName === nameOrUDID || devId === nameOrUDID || coreId === nameOrUDID) {
+        return { identifier: coreId, name: devName };
+      }
+    } else {
+      // Return first available paired device
+      if (d.connectionProperties?.pairingState === "paired") {
+        return { identifier: coreId, name: devName };
+      }
+    }
+  }
+
+  throw new Error(nameOrUDID
+    ? `Device '${nameOrUDID}' not found or not connected. Run nerve_list_devices to see available devices.`
+    : "No paired device found. Connect a device and run nerve_list_devices.");
+}
+
+async function handleRunDevice(params: Record<string, unknown>) {
+  const scheme = params.scheme as string;
+  const workspace = params.workspace as string | undefined;
+  const project = params.project as string | undefined;
+  const device = params.device as string | undefined;
+  const team = params.team as string | undefined;
+
+  if (!scheme) {
+    return {
+      content: [{ type: "text", text: "Error: 'scheme' parameter is required" }],
+      isError: true,
+    };
+  }
+
+  const log: string[] = [];
+
+  try {
+    // Find the device
+    const dev = await findDeviceIdentifier(device);
+    log.push(`Device: ${dev.name} (${dev.identifier})`);
+
+    // Build for device
+    let buildSource = "";
+    if (workspace) buildSource = `-workspace "${workspace}"`;
+    else if (project) buildSource = `-project "${project}"`;
+
+    const projectDir = workspace ? path.dirname(path.resolve(workspace)) : project ? path.dirname(path.resolve(project)) : process.cwd();
+    const projectName = path.basename(projectDir);
+    const derivedData = `/tmp/nerve-derived-data-${projectName}`;
+
+    let signingFlags = "";
+    if (team) {
+      signingFlags = `DEVELOPMENT_TEAM="${team}" CODE_SIGN_STYLE=Automatic`;
+    }
+
+    const buildCmd = `set -o pipefail && xcodebuild build ${buildSource} -scheme "${scheme}" -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath "${derivedData}" -allowProvisioningUpdates ${signingFlags} -quiet 2>&1 | tail -30`;
+
+    log.push(`Building ${scheme} for device...`);
+    let buildOutput: string;
+    try {
+      buildOutput = await runShell(buildCmd, 300000);
+    } catch (e) {
+      const errMsg = (e as Error).message;
+      log.push(errMsg);
+      return {
+        content: [{ type: "text", text: log.join("\n") }],
+        isError: true,
+      };
+    }
+    if (buildOutput.trim()) log.push(buildOutput.trim());
+    log.push("Build succeeded.");
+
+    // Find the .app bundle
+    const settingsCmd = `xcodebuild -showBuildSettings ${buildSource} -scheme "${scheme}" -sdk iphoneos -derivedDataPath "${derivedData}" 2>/dev/null`;
+    const settings = await runShell(settingsCmd);
+    const builtProductsDir = settings.match(/^\s*BUILT_PRODUCTS_DIR = (.+)/m)?.[1]?.trim();
+    const productName = settings.match(/^\s*FULL_PRODUCT_NAME = (.+)/m)?.[1]?.trim();
+    const appPath = builtProductsDir && productName ? `${builtProductsDir}/${productName}` : "";
+
+    if (!appPath) {
+      return {
+        content: [{ type: "text", text: log.join("\n") + "\nError: Could not find .app bundle" }],
+        isError: true,
+      };
+    }
+
+    const bundleId = (await runShell(
+      `/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "${appPath}/Info.plist"`
+    )).trim();
+    log.push(`App: ${bundleId}`);
+
+    // Install on device
+    log.push("Installing on device...");
+    await runShell(`xcrun devicectl device install app --device "${dev.identifier}" "${appPath}" 2>&1`, 120000);
+    log.push("Installed.");
+
+    // Launch on device
+    log.push("Launching...");
+    await runShell(`xcrun devicectl device process launch --device "${dev.identifier}" "${bundleId}" 2>&1`, 30000);
+    log.push("Launched.");
 
     return { content: [{ type: "text", text: log.join("\n") }] };
   } catch (e) {
