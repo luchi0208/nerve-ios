@@ -584,6 +584,19 @@ const TOOLS = [
     },
   },
   {
+    name: "nerve_appearance",
+    description:
+      "Switch between light and dark mode. On simulator, uses simctl. On device or if Nerve is connected, overrides the app's window trait collection.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        mode: { type: "string", enum: ["dark", "light", "toggle"], description: "Appearance mode. 'toggle' switches from current." },
+        target: { type: "string" },
+      },
+      required: ["mode"],
+    },
+  },
+  {
     name: "nerve_run_device",
     description:
       "Build, install, and launch an iOS app on a connected physical device. Requires the device to be paired and a valid code signing identity.",
@@ -985,6 +998,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return handleRunDevice(params);
   }
 
+  if (command === "appearance") {
+    return handleAppearance(params, targetId);
+  }
+
   if (command === "list_devices") {
     return handleListDevices();
   }
@@ -1247,6 +1264,63 @@ async function handleBuildRun(command: string, params: Record<string, unknown>) 
     log.push(`Error: ${error.message}`);
     return {
       content: [{ type: "text", text: log.join("\n") }],
+      isError: true,
+    };
+  }
+}
+
+// --- Appearance (Mac-side + in-app fallback) ---
+
+async function handleAppearance(params: Record<string, unknown>, targetId?: string) {
+  const mode = params.mode as string;
+  if (!mode || !["dark", "light", "toggle"].includes(mode)) {
+    return {
+      content: [{ type: "text", text: "Error: 'mode' must be 'dark', 'light', or 'toggle'" }],
+      isError: true,
+    };
+  }
+
+  // Try simctl first (simulator)
+  if (activeTarget) {
+    try {
+      if (mode === "toggle") {
+        // Read current, then flip
+        const current = (await runShell(`xcrun simctl ui "${activeTarget.udid}" appearance 2>/dev/null`)).trim();
+        const newMode = current === "dark" ? "light" : "dark";
+        await runShell(`xcrun simctl ui "${activeTarget.udid}" appearance ${newMode}`);
+        return { content: [{ type: "text", text: `Switched to ${newMode} mode (was ${current})` }] };
+      }
+      await runShell(`xcrun simctl ui "${activeTarget.udid}" appearance ${mode}`);
+      return { content: [{ type: "text", text: `Switched to ${mode} mode` }] };
+    } catch {
+      // Not a simulator — fall through to in-app override
+    }
+  }
+
+  // Fallback: override via Nerve in-app (works on device too)
+  try {
+    let style: string;
+    if (mode === "toggle") {
+      // Ask the app for current style, then flip
+      const current = await send("modify", {
+        query: ".UIWindow:0",
+        property: "overrideUserInterfaceStyle",
+      }, targetId);
+      // 0 = unspecified, 1 = light, 2 = dark
+      style = current.includes("2") ? "1" : "2";
+    } else {
+      style = mode === "dark" ? "2" : "1";
+    }
+    const result = await send("modify", {
+      query: ".UIWindow:0",
+      property: "overrideUserInterfaceStyle",
+      value: parseInt(style),
+    }, targetId);
+    const label = style === "2" ? "dark" : "light";
+    return { content: [{ type: "text", text: `Switched to ${label} mode (in-app override)\n${result}` }] };
+  } catch (e) {
+    return {
+      content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
       isError: true,
     };
   }

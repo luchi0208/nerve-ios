@@ -180,6 +180,7 @@ AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit
 | `nerve_list_simulators` | List available simulators |
 | `nerve_boot_simulator` | Boot a simulator by name or UDID |
 | `nerve_list_devices` | List connected physical devices |
+| `nerve_appearance` | Switch between light and dark mode |
 | `nerve_grant_permissions` | Pre-grant iOS permissions |
 
 ## Element Queries
