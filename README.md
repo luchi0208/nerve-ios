@@ -66,23 +66,7 @@ If installed from source:
 }
 ```
 
-### 3. Run
-
-```
-nerve_run --scheme MyApp
-```
-
-That's it. On the Simulator, Nerve auto-injects into the app at launch — no Swift package, no code changes, no `import Nerve`. Just build and go.
-
-## Quick Start
-
-```
-1. nerve_run   →  build, install, and launch (Nerve auto-injects)
-2. nerve_view  →  see every element on screen
-3. nerve_tap   →  tap buttons, fill fields, navigate
-```
-
-The agent sees every element, taps by reference (`@e2`), types text, scrolls, and verifies results — no sleep needed between commands.
+That's it. Tell your AI agent to build and run your app — Nerve auto-injects on the Simulator with no code changes needed.
 
 ## How It Works
 
