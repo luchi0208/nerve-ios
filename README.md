@@ -181,12 +181,6 @@ The `nerve_view` output shows each element with its ref and tap point:
 
 Use `@e2` to tap that field — Nerve uses the element's activation point (center), which is always the correct hittable position.
 
-## Auto-Wait
-
-Every interaction command automatically waits for the UI to settle before returning. No `sleep()` needed between commands. Nerve detects running animations and returns when the screen is ready for the next action. Permanent animations (Liquid Glass effects, loading spinners) are filtered out automatically.
-
-For async operations like network requests, use `nerve_wait_idle` or `nerve_network` explicitly.
-
 ## Architecture
 
 ```
