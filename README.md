@@ -1,6 +1,6 @@
 # Nerve
 
-Nerve gives AI agents eyes and hands inside iOS apps — on Simulator and physical devices.
+Nerve gives AI agents eyes and hands inside iOS apps.
 
 Point it at any Xcode project and call `nerve_run`. On the Simulator, Nerve auto-injects into the app — no code changes needed. The agent can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug — all through natural language.
 
@@ -68,6 +68,26 @@ If installed from source:
 
 That's it. Tell your AI agent to build and run your app — Nerve auto-injects on the Simulator with no code changes needed.
 
+## Example
+
+Things you can ask your AI agent with Nerve:
+
+> "Run my app on the simulator. Go to the checkout screen and try submitting an empty form — what validation errors show up?"
+
+> "There's a bug where the cart badge doesn't update after removing an item. Can you reproduce it and check the console logs?"
+
+> "Navigate through every screen in the app and find any buttons that don't respond to taps."
+
+> "The login screen looks broken on iPhone SE. Run it on that simulator and screenshot just the login form so I can see what's wrong."
+
+> "Trace all calls to `CartManager.addItem` and then add three items to the cart. Show me what arguments are being passed."
+
+> "Check what's stored in UserDefaults after onboarding completes. I think we're saving the auth token in the wrong key."
+
+> "Intercept the network requests when I pull to refresh on the orders screen. Show me the response bodies — I think the API is returning stale data."
+
+These are just starting points. The agent combines Nerve's tools on its own — you describe what you want in plain English, and it figures out the sequence of taps, inspections, and checks to get there.
+
 ## How It Works
 
 Nerve auto-injects into the app at launch on the Simulator — no code changes needed. It runs inside the app process, starts a WebSocket server, and the MCP server on the Mac connects to it. AI agent tool calls are translated into commands executed inside the app.
@@ -133,12 +153,10 @@ AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit
 | Tool | Description |
 |------|-------------|
 | `nerve_run` | Build, install, and launch on the simulator (auto-injects Nerve) |
-| `nerve_run_device` | Build, install, and launch on a connected physical device |
 | `nerve_build` | Build only |
 | `nerve_status` | Show connected targets |
 | `nerve_list_simulators` | List available simulators |
 | `nerve_boot_simulator` | Boot a simulator by name or UDID |
-| `nerve_list_devices` | List connected physical devices |
 | `nerve_appearance` | Switch between light and dark mode |
 | `nerve_grant_permissions` | Pre-grant iOS permissions |
 
