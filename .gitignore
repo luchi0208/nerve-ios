@@ -8,6 +8,7 @@ DerivedData/
 node_modules/
 mcp-server/dist/
 mcp-server/framework/
+mcp-server/README.md
 
 # OS
 .DS_Store

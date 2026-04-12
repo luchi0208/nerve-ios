@@ -1,6 +1,6 @@
 {
   "name": "nerve-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for Nerve — gives AI agents runtime access to iOS apps",
   "main": "dist/index.js",
   "bin": {
@@ -10,7 +10,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "prepublishOnly": "npm run build && npm run bundle-framework",
+    "prepublishOnly": "npm run build && npm run bundle-framework && cp ../README.md README.md",
     "bundle-framework": "bash ../scripts/build-framework.sh && rm -rf framework && mkdir -p framework/Nerve.framework && cp ../.build/inject/Nerve.framework/Nerve framework/Nerve.framework/ && cp ../.build/inject/Nerve.framework/Info.plist framework/Nerve.framework/"
   },
   "repository": {
