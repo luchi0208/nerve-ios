@@ -105,7 +105,7 @@ AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit
 | Tool | Description |
 |------|-------------|
 | `nerve_view` | See all visible elements with type, label, ID, tap point, and position |
-| `nerve_tree` | Full UIKit view hierarchy |
+| `nerve_tree` | Full view hierarchy (UIKit + SwiftUI) |
 | `nerve_inspect` | Detailed properties of a specific element |
 | `nerve_screenshot` | Capture the screen as an image |
 
