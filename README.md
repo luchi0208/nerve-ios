@@ -125,6 +125,9 @@ AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit
 | `nerve_context_menu` | Open context menu |
 | `nerve_back` | Navigate back |
 | `nerve_dismiss` | Dismiss keyboard or modal |
+| `nerve_action` | Invoke a custom accessibility action on an element |
+| `nerve_sequence` | Execute multiple commands in a single call — faster than one-by-one |
+| `nerve_wait_idle` | Wait for all network requests and animations to finish |
 
 ### Navigate
 
