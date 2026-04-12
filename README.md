@@ -2,44 +2,11 @@
 
 Nerve gives AI agents eyes and hands inside iOS apps — on Simulator and physical devices.
 
-Add the Nerve Swift package to your app, and an MCP server connects your AI agent to it. The agent can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug — all through natural language.
+Point it at any Xcode project and call `nerve_run`. On the Simulator, Nerve auto-injects into the app — no code changes needed. The agent can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug — all through natural language.
 
 ## Setup
 
-### 1. Add the Swift Package
-
-In Xcode: **File > Add Package Dependencies > Add Local...** and select the Nerve directory.
-
-Then add two lines to your app's entry point:
-
-```swift
-#if DEBUG
-import Nerve
-#endif
-
-@main
-struct MyApp: App {
-    init() {
-        #if DEBUG
-        Nerve.start()
-        #endif
-    }
-    // ...
-}
-```
-
-All Nerve code is wrapped in `#if DEBUG` — zero code ships in release builds.
-
-You can also add Nerve as a remote package dependency:
-
-```swift
-// Package.swift
-dependencies: [
-    .package(url: "https://github.com/luchi0208/nerve-ios.git", from: "0.1.0")
-]
-```
-
-### 2. Install the MCP Server
+### 1. Install the MCP Server
 
 ```bash
 npx nerve-mcp@latest
@@ -58,7 +25,7 @@ git clone https://github.com/luchi0208/nerve-ios.git
 cd nerve/mcp-server && npm install && npm run build
 ```
 
-### 3. Configure Your AI Agent
+### 2. Configure Your AI Agent
 
 **Claude Code** — add to your project's `.mcp.json`:
 
@@ -99,10 +66,18 @@ If installed from source:
 }
 ```
 
+### 3. Run
+
+```
+nerve_run --scheme MyApp
+```
+
+That's it. On the Simulator, Nerve auto-injects into the app at launch — no Swift package, no code changes, no `import Nerve`. Just build and go.
+
 ## Quick Start
 
 ```
-1. Build and run your app on the simulator (Cmd+R in Xcode or nerve_run)
+1. nerve_run   →  build, install, and launch (Nerve auto-injects)
 2. nerve_view  →  see every element on screen
 3. nerve_tap   →  tap buttons, fill fields, navigate
 ```
@@ -111,7 +86,7 @@ The agent sees every element, taps by reference (`@e2`), types text, scrolls, an
 
 ## How It Works
 
-Nerve runs inside the app process as a Swift package. It starts a WebSocket server that the MCP server on the Mac connects to. AI agent tool calls are translated into commands executed inside the app.
+Nerve auto-injects into the app at launch on the Simulator — no code changes needed. It runs inside the app process, starts a WebSocket server, and the MCP server on the Mac connects to it. AI agent tool calls are translated into commands executed inside the app.
 
 Because it runs in-process, Nerve has access to the full view hierarchy, the Objective-C runtime, live objects, network delegates, and the HID event system.
 
@@ -173,7 +148,7 @@ AI Agent  →  MCP Server (Mac)  →  WebSocket  →  Nerve (in-app)  →  UIKit
 
 | Tool | Description |
 |------|-------------|
-| `nerve_run` | Build, install, and launch on the simulator |
+| `nerve_run` | Build, install, and launch on the simulator (auto-injects Nerve) |
 | `nerve_run_device` | Build, install, and launch on a connected physical device |
 | `nerve_build` | Build only |
 | `nerve_status` | Show connected targets |

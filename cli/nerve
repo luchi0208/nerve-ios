@@ -8,7 +8,7 @@ set -euo pipefail
 #   nerve status (show connected targets)
 
 NERVE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-NERVE_BUILD_DIR="${NERVE_DIR}/.build/nerve-dylib"
+NERVE_FRAMEWORK=""
 PORT_DIR="/tmp/nerve-ports"
 
 # Colors
@@ -20,6 +20,68 @@ NC='\033[0m'
 log() { echo -e "${GREEN}[nerve]${NC} $1"; }
 warn() { echo -e "${YELLOW}[nerve]${NC} $1"; }
 err() { echo -e "${RED}[nerve]${NC} $1" >&2; }
+
+# --- Nerve Framework ---
+
+app_contains_nerve() {
+    local app_path="$1"
+    local app_name
+    app_name="$(basename "$app_path" .app)"
+    local binary="${app_path}/${app_name}"
+
+    # Check binary for Nerve symbols (static SPM linking)
+    if nm -gU "$binary" 2>/dev/null | grep -q "nerve_auto_start"; then
+        return 0
+    fi
+
+    # Check Frameworks/ for dynamic linking
+    local frameworks_dir="${app_path}/Frameworks"
+    if [[ -d "$frameworks_dir" ]] && ls "$frameworks_dir" 2>/dev/null | grep -q "^Nerve"; then
+        return 0
+    fi
+
+    return 1
+}
+
+find_nerve_framework() {
+    local candidates=(
+        # Bundled with npm package
+        "${NERVE_DIR}/mcp-server/framework/Nerve.framework/Nerve"
+        # Homebrew
+        "/opt/homebrew/lib/nerve/Nerve.framework/Nerve"
+        "/usr/local/lib/nerve/Nerve.framework/Nerve"
+        # Repo build (development)
+        "${NERVE_DIR}/.build/inject/Nerve.framework/Nerve"
+    )
+    for candidate in "${candidates[@]}"; do
+        if [[ -f "$candidate" ]]; then
+            NERVE_FRAMEWORK="$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+ensure_nerve_framework() {
+    if find_nerve_framework; then
+        return 0
+    fi
+
+    # Auto-build from source (development mode)
+    local script="${NERVE_DIR}/scripts/build-framework.sh"
+    if [[ -f "$script" ]]; then
+        log "Building Nerve.framework (first time)..."
+        bash "$script"
+        if find_nerve_framework; then
+            return 0
+        fi
+    fi
+
+    err "Nerve.framework not found."
+    err "If installed via npm, reinstall nerve-mcp."
+    err "If developing from source, run: ${NERVE_DIR}/scripts/build-framework.sh"
+    exit 1
+}
 
 # --- Commands ---
 
@@ -144,9 +206,16 @@ for runtime, devices in data.get('devices', {}).items():
     mkdir -p "$PORT_DIR"
     rm -f "$PORT_DIR/$udid-$bundle_id.json"
 
-    # Launch
-    log "Launching..."
-    xcrun simctl launch "$udid" "$bundle_id"
+    # Launch — detect SPM vs inject mode
+    if app_contains_nerve "$app_path"; then
+        log "Launching (SPM mode)..."
+        xcrun simctl launch "$udid" "$bundle_id"
+    else
+        ensure_nerve_framework
+        log "Launching (inject mode)..."
+        SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$NERVE_FRAMEWORK" \
+            xcrun simctl launch "$udid" "$bundle_id"
+    fi
 
     # Wait for Nerve to be ready
     log "Waiting for Nerve WebSocket server..."

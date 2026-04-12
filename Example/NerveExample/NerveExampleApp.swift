@@ -1,17 +1,7 @@
 import SwiftUI
 
-#if DEBUG
-import Nerve
-#endif
-
 @main
 struct NerveExampleApp: App {
-    init() {
-        #if DEBUG
-        Nerve.start()
-        #endif
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()

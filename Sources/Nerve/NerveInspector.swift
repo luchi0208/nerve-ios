@@ -160,19 +160,65 @@ extension NerveEngine {
     func handleScreenshot(_ command: NerveCommand) async -> NerveResponse {
         let scale = command.doubleParam("scale") ?? 1.0
         let maxDimension = command.doubleParam("maxDimension")
+        let elementQuery = command.stringParam("element")
+        let region = command.stringParam("region")
+        let padding = command.doubleParam("padding") ?? 20.0
+
         let windows = NerveGetAllWindows() as? [UIWindow] ?? NerveElementResolver.allWindowsPublic()
         guard let window = windows.first else {
             return .error(command.id, "No window available")
         }
 
         let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
-        let image = renderer.image { ctx in
+        let fullImage = renderer.image { ctx in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
         }
 
+        // Determine crop rect (in points)
+        var cropRect: CGRect? = nil
+
+        if let query = elementQuery {
+            // Crop to element bounds + padding
+            guard let element = NerveElementResolver.resolve(query: query) else {
+                return .error(command.id, "Element not found: \(query)")
+            }
+            let padded = element.frame.insetBy(dx: -padding, dy: -padding)
+            let screenBounds = CGRect(origin: .zero, size: window.bounds.size)
+            cropRect = padded.intersection(screenBounds)
+        } else if let regionStr = region {
+            // Normalized region: "x1,y1,x2,y2" where values are 0-1
+            let parts = regionStr.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            if parts.count == 4 {
+                let x1 = parts[0], y1 = parts[1], x2 = parts[2], y2 = parts[3]
+                guard x1 >= 0, y1 >= 0, x2 <= 1, y2 <= 1, x1 < x2, y1 < y2 else {
+                    return .error(command.id, "Invalid region: values must be 0-1 and x1<x2, y1<y2")
+                }
+                let w = window.bounds.width
+                let h = window.bounds.height
+                cropRect = CGRect(x: x1 * w, y: y1 * h, width: (x2 - x1) * w, height: (y2 - y1) * h)
+            } else {
+                return .error(command.id, "Invalid region format. Use: \"x1,y1,x2,y2\" with normalized 0-1 values")
+            }
+        }
+
+        // Apply crop if specified
+        var image = fullImage
+        if let rect = cropRect {
+            let imgScale = fullImage.scale
+            let pixelRect = CGRect(
+                x: rect.origin.x * imgScale,
+                y: rect.origin.y * imgScale,
+                width: rect.width * imgScale,
+                height: rect.height * imgScale
+            )
+            if let cgCropped = fullImage.cgImage?.cropping(to: pixelRect) {
+                image = UIImage(cgImage: cgCropped, scale: imgScale, orientation: fullImage.imageOrientation)
+            }
+        }
+
+        // Apply resize
         let finalImage: UIImage
         if let maxDim = maxDimension, maxDim > 0 {
-            // Resize so the longest side fits within maxDimension
             let longestSide = max(image.size.width, image.size.height)
             if longestSide > maxDim {
                 let resizeScale = maxDim / longestSide

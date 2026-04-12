@@ -142,8 +142,9 @@ async function restartApp() {
 
   await sleep(300);
 
-  // Relaunch
-  execSync(`xcrun simctl launch "${simulatorUDID}" ${BUNDLE_ID}`);
+  // Relaunch with injection
+  const framework = path.join(NERVE_ROOT, ".build", "inject", "Nerve.framework", "Nerve");
+  execSync(`SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="${framework}" xcrun simctl launch "${simulatorUDID}" ${BUNDLE_ID}`);
 
   // Port is deterministic — no need to wait for a file
   currentPort = nervePort(simulatorUDID, BUNDLE_ID);
@@ -246,9 +247,14 @@ async function buildAndLaunch() {
     );
   } catch {}
 
-  // Launch
-  console.log("  Launching...");
-  execSync(`xcrun simctl launch "${udid}" ${BUNDLE_ID}`);
+  // Launch with Nerve injection
+  console.log("  Launching (inject mode)...");
+  const framework = path.join(NERVE_ROOT, ".build", "inject", "Nerve.framework", "Nerve");
+  if (!fs.existsSync(framework)) {
+    console.log("  Building Nerve.framework...");
+    execSync(`bash "${NERVE_ROOT}/scripts/build-framework.sh"`, { timeout: 180000 });
+  }
+  execSync(`SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="${framework}" xcrun simctl launch "${udid}" ${BUNDLE_ID}`);
 
   // Port is deterministic from UDID + bundle ID
   const port = nervePort(udid, BUNDLE_ID);

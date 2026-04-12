@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.iOS(.v16)],
     products: [
         .library(name: "Nerve", targets: ["Nerve"]),
+        .library(name: "NerveDynamic", type: .dynamic, targets: ["Nerve"]),
     ],
     targets: [
         .target(

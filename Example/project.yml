@@ -5,18 +5,12 @@ options:
     iOS: "16.0"
   xcodeVersion: "16.0"
 
-packages:
-  Nerve:
-    path: ..
-
 targets:
   NerveExample:
     type: application
     platform: iOS
     sources:
       - NerveExample
-    dependencies:
-      - package: Nerve
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nerve.example

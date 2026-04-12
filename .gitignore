@@ -7,6 +7,7 @@ DerivedData/
 # Dependencies
 node_modules/
 mcp-server/dist/
+mcp-server/framework/
 
 # OS
 .DS_Store

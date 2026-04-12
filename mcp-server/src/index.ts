@@ -9,6 +9,7 @@ import {
 import WebSocket from "ws";
 import { spawn } from "child_process";
 import * as path from "path";
+import * as fs from "fs";
 import * as net from "net";
 
 // --- Types ---
@@ -157,13 +158,13 @@ The tap= coordinate is the center point where the element is reliably hittable.
 ### Verify
 - nerve_view to see updated screen state — this is your PRIMARY inspection tool. It returns structured element data with refs, identifiers, and tap coordinates you can act on directly.
 - nerve_console with filter="[nerve]" and since="last_action" for your trace logs.
-- nerve_screenshot ONLY when you need to verify visual layout, colors, or spatial relationships that text can't convey. Do NOT use screenshot as a substitute for nerve_view.
+- Do NOT use nerve_screenshot unless nerve_view is insufficient (e.g., verifying colors, gradients, or visual layout). When you must screenshot, ALWAYS crop to the relevant element: nerve_screenshot with element="#my-element" instead of capturing the full screen.
 - nerve_heap to inspect live objects (e.g., check ViewModel state).
 
 ### Tips
 - Always call nerve_view before interacting — don't guess element identifiers.
 - Use @eN refs from nerve_view output to tap elements without identifiers.
-- nerve_view is lightweight (~1 line per element) and gives you everything needed to interact. Prefer it over nerve_screenshot for all inspection tasks.
+- nerve_view is lightweight (~1 line per element) and gives you everything needed to interact. NEVER use nerve_screenshot when nerve_view can answer the question.
 - If an element isn't visible, try nerve_scroll_to_find before giving up.
 - The navigation map builds automatically and persists across sessions.
 - Do NOT add sleep/delay between commands — Nerve handles waiting automatically.
@@ -355,13 +356,16 @@ const TOOLS = [
   },
   {
     name: "nerve_screenshot",
-    description: "Capture a screenshot of the current screen. Returns base64-encoded PNG. Prefer nerve_view for understanding screen state and finding elements — it returns structured data with element refs and tap coordinates. Only use screenshot for visual layout verification when text output isn't enough.",
+    description: "Capture a screenshot. WARNING: Screenshots consume significant tokens — use nerve_view for all normal inspection. Only use for visual checks (colors, gradients, images, layout). Use 'element' to crop to a specific element (cheapest), or 'region' to crop to a normalized area. Avoid full-screen screenshots when possible.",
     inputSchema: {
       type: "object" as const,
       properties: {
         target: { type: "string" },
+        element: { type: "string", description: "Crop to a specific element. Use @eN ref, #identifier, or @label from nerve_view. This is the most token-efficient way to verify visual appearance." },
+        region: { type: "string", description: "Crop to a normalized region: \"x1,y1,x2,y2\" where values are 0-1. Example: \"0,0,0.5,0.5\" for top-left quarter." },
+        padding: { type: "number", description: "Padding in points around the element crop. Default: 20." },
         scale: { type: "number", description: "Image scale. Default: 1.0." },
-        maxDimension: { type: "number", description: "Resize so longest side fits within this value (in points). Normalizes across device sizes. Example: 800. Overrides scale when set." },
+        maxDimension: { type: "number", description: "Resize so longest side fits within this value (in points). Example: 800. Overrides scale when set." },
       },
     },
   },
@@ -519,7 +523,7 @@ const TOOLS = [
   {
     name: "nerve_run",
     description:
-      "Build, install, and launch an iOS app on the simulator. The app must include the Nerve SPM package. After launching, call nerve_view to see the initial screen, then navigate and interact as needed.",
+      "Build, install, and launch an iOS app on the simulator. Nerve is auto-injected if the app doesn't include it via SPM — no code changes needed. After launching, call nerve_view to see the initial screen.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1132,6 +1136,65 @@ function runShell(cmd: string, timeoutMs = 120000): Promise<string> {
   });
 }
 
+// --- Nerve Framework Injection ---
+
+// Resolve paths for finding the Nerve framework
+// mcp-server/dist/index.js -> mcp-server/ (npm package root)
+// mcp-server/src/index.ts  -> mcp-server/ (development)
+const mpcPackageRoot = path.resolve(__dirname, "..");
+const nerveRepoRoot = path.resolve(mpcPackageRoot, "..");
+
+function findNerveFramework(): string | null {
+  const candidates = [
+    // 1. Bundled with npm package (npm install nerve-mcp)
+    path.join(mpcPackageRoot, "framework", "Nerve.framework", "Nerve"),
+    // 2. Homebrew installation
+    "/opt/homebrew/lib/nerve/Nerve.framework/Nerve",
+    "/usr/local/lib/nerve/Nerve.framework/Nerve",
+    // 3. Repo .build/inject/ (development from source)
+    path.join(nerveRepoRoot, ".build", "inject", "Nerve.framework", "Nerve"),
+  ];
+  return candidates.find(p => fs.existsSync(p)) ?? null;
+}
+
+async function ensureNerveFramework(): Promise<string> {
+  const existing = findNerveFramework();
+  if (existing) return existing;
+
+  // Auto-build from source (development mode)
+  const buildScript = path.join(nerveRepoRoot, "scripts", "build-framework.sh");
+  if (fs.existsSync(buildScript)) {
+    await runShell(`bash "${buildScript}"`, 180000);
+    const built = findNerveFramework();
+    if (built) return built;
+  }
+
+  throw new Error(
+    "Nerve.framework not found. If installed via npm, reinstall nerve-mcp. " +
+    "If developing from source, run: scripts/build-framework.sh"
+  );
+}
+
+async function appContainsNerve(appPath: string): Promise<boolean> {
+  // Check if the app binary contains Nerve symbols (works for both static and dynamic SPM linking)
+  try {
+    const appName = path.basename(appPath, ".app");
+    const binary = path.join(appPath, appName);
+    const symbols = await runShell(`nm -gU "${binary}" 2>/dev/null | grep nerve_auto_start || true`);
+    if (symbols.trim()) return true;
+
+    // Also check Frameworks/ for dynamic linking case
+    const frameworks = path.join(appPath, "Frameworks");
+    if (fs.existsSync(frameworks)) {
+      const entries = fs.readdirSync(frameworks);
+      if (entries.some(e => e.startsWith("Nerve"))) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function findSimulatorUDID(name: string): Promise<string> {
   const json = await runShell("xcrun simctl list devices available -j");
   const data = JSON.parse(json);
@@ -1235,9 +1298,21 @@ async function handleBuildRun(command: string, params: Record<string, unknown>) 
       // Not running
     }
 
-    // Launch
-    await runShell(`xcrun simctl launch "${udid}" "${bundleId}"`);
-    log.push("Launched.");
+    // Launch — detect SPM vs inject mode
+    const hasNerve = await appContainsNerve(appPath);
+    let injected = false;
+
+    if (hasNerve) {
+      await runShell(`xcrun simctl launch "${udid}" "${bundleId}"`);
+      log.push("Launched (SPM mode).");
+    } else {
+      const frameworkBinary = await ensureNerveFramework();
+      await runShell(
+        `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="${frameworkBinary}" xcrun simctl launch "${udid}" "${bundleId}"`
+      );
+      log.push("Launched (inject mode).");
+      injected = true;
+    }
 
     // Set active target
     activeTarget = { udid, bundleId };
@@ -1255,7 +1330,11 @@ async function handleBuildRun(command: string, params: Record<string, unknown>) 
     }
 
     if (!nerveReady) {
-      log.push("Nerve did not start. Ensure your app includes the Nerve SPM package with Nerve.start() in #if DEBUG.");
+      if (injected) {
+        log.push("Nerve did not start after injection. The framework may be incompatible — try rebuilding: delete .build/inject/ and re-run.");
+      } else {
+        log.push("Nerve did not start. Ensure your app calls Nerve.start() in #if DEBUG.");
+      }
     }
 
     return { content: [{ type: "text", text: log.join("\n") }] };

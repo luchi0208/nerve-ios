@@ -7,27 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		2888055A0382A559CD3FB15C /* Nerve in Frameworks */ = {isa = PBXBuildFile; productRef = 58105540310DA30D5C0A6B9A /* Nerve */; };
 		5EF89774D5C07EEABBF81173 /* NerveExampleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7495E17AE97680B7DC311B2F /* NerveExampleApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		49E6EFB96ED2CECFF173FF48 /* Nerve */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Nerve; path = ..; sourceTree = SOURCE_ROOT; };
 		70748C68B9B24F12DD14119A /* NerveExample.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NerveExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7495E17AE97680B7DC311B2F /* NerveExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NerveExampleApp.swift; sourceTree = "<group>"; };
 		96DFEF82712928B2D1428436 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		1F9E07135540F8FFFCF5541A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				2888055A0382A559CD3FB15C /* Nerve in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		4981C894BAE2A8345615F573 /* Products */ = {
@@ -47,19 +34,10 @@
 			path = NerveExample;
 			sourceTree = "<group>";
 		};
-		F8A9AEF3E120480EACABBBDF /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				49E6EFB96ED2CECFF173FF48 /* Nerve */,
-			);
-			name = Packages;
-			sourceTree = SOURCE_ROOT;
-		};
 		FAB0658D97E6D49AD64644DA = {
 			isa = PBXGroup;
 			children = (
 				932F5858AD445A5A62818C66 /* NerveExample */,
-				F8A9AEF3E120480EACABBBDF /* Packages */,
 				4981C894BAE2A8345615F573 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -72,16 +50,12 @@
 			buildConfigurationList = BE4156892650387E0E59710A /* Build configuration list for PBXNativeTarget "NerveExample" */;
 			buildPhases = (
 				6BE301D73D48C4FAF1B07554 /* Sources */,
-				1F9E07135540F8FFFCF5541A /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = NerveExample;
-			packageProductDependencies = (
-				58105540310DA30D5C0A6B9A /* Nerve */,
-			);
 			productName = NerveExample;
 			productReference = 70748C68B9B24F12DD14119A /* NerveExample.app */;
 			productType = "com.apple.product-type.application";
@@ -312,13 +286,6 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		58105540310DA30D5C0A6B9A /* Nerve */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = Nerve;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3DB1F6562A7C65AA86C38AE7 /* Project object */;
 }
