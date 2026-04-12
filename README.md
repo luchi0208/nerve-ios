@@ -2,7 +2,7 @@
 
 Nerve gives AI agents eyes and hands inside iOS apps.
 
-Point it at any Xcode project and call `nerve_run`. On the Simulator, Nerve auto-injects into the app — no code changes needed. The agent can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug — all through natural language.
+Add the MCP server to your AI agent, and it can see every element on screen, tap buttons, fill forms, scroll, inspect state, intercept network calls, and debug your iOS app — all through natural language. No code changes needed.
 
 ## Setup
 
