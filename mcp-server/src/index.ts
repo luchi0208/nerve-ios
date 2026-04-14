@@ -611,7 +611,6 @@ const TOOLS = [
         workspace: { type: "string", description: "Path to .xcworkspace (optional)." },
         project: { type: "string", description: "Path to .xcodeproj (optional)." },
         device: { type: "string", description: "Device name or UDID. If omitted, uses the first available paired device." },
-        team: { type: "string", description: "Apple Development Team ID for code signing (optional if set in Xcode project)." },
       },
       required: ["scheme"],
     },
@@ -1420,31 +1419,30 @@ async function handleListDevices() {
 }
 
 async function findDeviceIdentifier(nameOrUDID?: string): Promise<{ identifier: string; name: string }> {
-  const output = await runShell("xcrun devicectl list devices -j 2>/dev/null");
-  const data = JSON.parse(output);
-  const devices = data?.result?.devices ?? [];
+  const output = await runShell("xcrun devicectl list devices 2>&1");
+  const lines = output.split("\n").filter(l => l.trim() && !l.startsWith("--") && !l.startsWith("Name"));
 
-  for (const d of devices) {
-    if (d.connectionProperties?.transportType !== "wired" && d.connectionProperties?.transportType !== "localNetwork") continue;
-    const devName = d.deviceProperties?.name ?? "";
-    const devId = d.hardwareProperties?.udid ?? d.identifier ?? "";
-    const coreId = d.identifier ?? "";
+  for (const line of lines) {
+    // Parse columns: Name, Hostname, Identifier, State, Model
+    // Columns are separated by 3+ spaces
+    const parts = line.split(/\s{3,}/).map(s => s.trim()).filter(Boolean);
+    if (parts.length < 4) continue;
+
+    const [devName, , devId, state] = parts;
+    if (state !== "connected") continue;
 
     if (nameOrUDID) {
-      if (devName === nameOrUDID || devId === nameOrUDID || coreId === nameOrUDID) {
-        return { identifier: coreId, name: devName };
+      if (devName === nameOrUDID || devId === nameOrUDID) {
+        return { identifier: devId, name: devName };
       }
     } else {
-      // Return first available paired device
-      if (d.connectionProperties?.pairingState === "paired") {
-        return { identifier: coreId, name: devName };
-      }
+      return { identifier: devId, name: devName };
     }
   }
 
   throw new Error(nameOrUDID
     ? `Device '${nameOrUDID}' not found or not connected. Run nerve_list_devices to see available devices.`
-    : "No paired device found. Connect a device and run nerve_list_devices.");
+    : "No connected device found. Connect a device and run nerve_list_devices.");
 }
 
 async function handleRunDevice(params: Record<string, unknown>) {
@@ -1452,7 +1450,6 @@ async function handleRunDevice(params: Record<string, unknown>) {
   const workspace = params.workspace as string | undefined;
   const project = params.project as string | undefined;
   const device = params.device as string | undefined;
-  const team = params.team as string | undefined;
 
   if (!scheme) {
     return {
@@ -1477,12 +1474,7 @@ async function handleRunDevice(params: Record<string, unknown>) {
     const projectName = path.basename(projectDir);
     const derivedData = `/tmp/nerve-derived-data-${projectName}`;
 
-    let signingFlags = "";
-    if (team) {
-      signingFlags = `DEVELOPMENT_TEAM="${team}" CODE_SIGN_STYLE=Automatic`;
-    }
-
-    const buildCmd = `set -o pipefail && xcodebuild build ${buildSource} -scheme "${scheme}" -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath "${derivedData}" -allowProvisioningUpdates ${signingFlags} -quiet 2>&1 | tail -30`;
+    const buildCmd = `set -o pipefail && xcodebuild build ${buildSource} -scheme "${scheme}" -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath "${derivedData}" -allowProvisioningUpdates -quiet 2>&1 | tail -30`;
 
     log.push(`Building ${scheme} for device...`);
     let buildOutput: string;
