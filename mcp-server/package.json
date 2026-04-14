@@ -1,6 +1,6 @@
 {
   "name": "nerve-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "MCP server for Nerve — gives AI agents runtime access to iOS apps",
   "main": "dist/index.js",
   "bin": {
