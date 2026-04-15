@@ -346,14 +346,23 @@ final class NerveElementResolver {
             return
         }
 
-        // Check for modal — if a subview has accessibilityViewIsModal, only walk that subtree.
-        // Use .last to prefer the topmost modal (e.g. context menu container over dimming view).
-        // Skip hidden/zero-alpha views since they can't contain visible elements.
+        // Check for modal — if a subview has accessibilityViewIsModal, walk that subtree.
+        // At depth 0 (window level), also walk siblings after the modal to catch nested
+        // presentations (e.g. sheet on top of fullScreenCover). Deeper levels only walk
+        // the modal subtree to avoid traversing background content.
         if let view = root as? UIView {
-            let modalSubview = view.subviews.last { $0.accessibilityViewIsModal && !$0.isHidden && $0.alpha >= 0.01 }
-            if let modal = modalSubview {
-                walkAccessibilityTree(root: modal, depth: depth, refCounter: &refCounter,
+            let subs = view.subviews
+            if let modalIdx = subs.lastIndex(where: { $0.accessibilityViewIsModal && !$0.isHidden && $0.alpha >= 0.01 }) {
+                walkAccessibilityTree(root: subs[modalIdx], depth: depth, refCounter: &refCounter,
                                       elements: &elements, modalVC: modalVC, screenBounds: screenBounds)
+                if depth == 0 {
+                    for i in subs.index(after: modalIdx)..<subs.endIndex {
+                        if !subs[i].isHidden && subs[i].alpha >= 0.01 {
+                            walkAccessibilityTree(root: subs[i], depth: depth, refCounter: &refCounter,
+                                                  elements: &elements, modalVC: modalVC, screenBounds: screenBounds)
+                        }
+                    }
+                }
                 return
             }
         }
