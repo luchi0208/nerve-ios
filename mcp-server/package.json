@@ -18,7 +18,7 @@
     "url": "git+https://github.com/luchi0208/nerve-ios.git",
     "directory": "mcp-server"
   },
-  "files": ["dist", "framework", "README.md"],
+  "files": ["dist", "framework", "skill", "README.md"],
   "keywords": ["mcp", "ios", "automation", "simulator", "nerve"],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

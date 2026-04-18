@@ -68,6 +68,26 @@ If installed from source:
 
 That's it. Tell your AI agent to build and run your app — Nerve auto-injects on the Simulator with no code changes needed.
 
+### 3. Debug Skill (Claude Code only)
+
+Nerve ships with a `/nerve-debug` skill for Claude Code. Instead of guessing at bugs, it adds runtime logs, reproduces the issue, reads the logs, and confirms the root cause before fixing.
+
+Add to your `.claude/settings.json`:
+
+```json
+{
+  "skills": [
+    "node_modules/nerve-mcp/skill"
+  ]
+}
+```
+
+Then use it:
+
+```
+/nerve-debug the cart total is wrong after removing an item
+```
+
 ## Example
 
 Things you can ask your AI agent with Nerve:
