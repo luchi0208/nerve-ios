@@ -53,7 +53,7 @@ cd nerve/mcp-server && npm install && npm run build
 }
 ```
 
-If installed from source:
+If installed from source, copy `.mcp.json.example` to `.mcp.json` and replace the path:
 
 ```json
 {
@@ -65,6 +65,8 @@ If installed from source:
   }
 }
 ```
+
+`.mcp.json` is gitignored so your local path won't be committed.
 
 That's it. Tell your AI agent to build and run your app — Nerve auto-injects on the Simulator with no code changes needed.
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nerve": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/Nerve/mcp-server/dist/index.js"]
+    }
+  }
+}

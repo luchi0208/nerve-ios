@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "nerve": {
-      "command": "node",
-      "args": ["/Users/luannguyen/Documents/privateproject/Nerve/mcp-server/dist/index.js"]
-    }
-  }
-}

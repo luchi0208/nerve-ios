@@ -25,3 +25,6 @@ mcp-server/README.md
 # IDE
 .idea/
 .vscode/
+
+# Local MCP config (use .mcp.json.example as template)
+.mcp.json
